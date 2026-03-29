@@ -57,5 +57,21 @@ class SandboxConfig(BaseModel):
         default_factory=dict,
         description="Environment variables to inject into the sandbox container. Values starting with $ will be resolved from host environment variables.",
     )
+    e2b_user_data_dir: str | None = Field(
+        default=None,
+        description="E2B-only: actual writable root inside the VM that virtual /mnt/user-data paths map to.",
+    )
+    e2b_skills_dir: str | None = Field(
+        default=None,
+        description="E2B-only: actual root inside the VM that virtual skills paths map to.",
+    )
+    e2b_acp_workspace_dir: str | None = Field(
+        default=None,
+        description="E2B-only: actual root inside the VM that virtual /mnt/acp-workspace maps to.",
+    )
+    e2b_working_directory: str | None = Field(
+        default=None,
+        description="E2B-only: default working directory for command execution.",
+    )
 
     model_config = ConfigDict(extra="allow")

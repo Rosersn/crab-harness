@@ -7,7 +7,7 @@ import { ArtifactTrigger } from "@/components/workspace/artifacts";
 import {
   ChatBox,
   useSpecificChatMode,
-  useThreadChat,
+  useThreadChatRuntime,
 } from "@/components/workspace/chats";
 import { ExportTrigger } from "@/components/workspace/export-trigger";
 import { InputBox } from "@/components/workspace/input-box";
@@ -18,54 +18,24 @@ import { TodoList } from "@/components/workspace/todo-list";
 import { TokenUsageIndicator } from "@/components/workspace/token-usage-indicator";
 import { Welcome } from "@/components/workspace/welcome";
 import { useI18n } from "@/core/i18n/hooks";
-import { useNotification } from "@/core/notification/hooks";
 import { useLocalSettings } from "@/core/settings";
-import { useThreadStream } from "@/core/threads/hooks";
-import { textOfMessage } from "@/core/threads/utils";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
 export default function ChatPage() {
   const { t } = useI18n();
   const [settings, setSettings] = useLocalSettings();
-
-  const { threadId, isNewThread, setIsNewThread, isMock } = useThreadChat();
+  const { threadId, isNewThread, isMock, thread, sendMessage, isUploading } =
+    useThreadChatRuntime();
   useSpecificChatMode();
-
-  const { showNotification } = useNotification();
-
-  const [thread, sendMessage, isUploading] = useThreadStream({
-    threadId: isNewThread ? undefined : threadId,
-    context: settings.context,
-    isMock,
-    onStart: () => {
-      setIsNewThread(false);
-      // ! Important: Never use next.js router for navigation in this case, otherwise it will cause the thread to re-mount and lose all states. Use native history API instead.
-      history.replaceState(null, "", `/workspace/chats/${threadId}`);
-    },
-    onFinish: (state) => {
-      if (document.hidden || !document.hasFocus()) {
-        let body = "Conversation finished";
-        const lastMessage = state.messages.at(-1);
-        if (lastMessage) {
-          const textContent = textOfMessage(lastMessage);
-          if (textContent) {
-            body =
-              textContent.length > 200
-                ? textContent.substring(0, 200) + "..."
-                : textContent;
-          }
-        }
-        showNotification(state.title, { body });
-      }
-    },
-  });
+  const showNewThreadState =
+    isNewThread && thread.messages.length === 0 && !thread.isLoading;
 
   const handleSubmit = useCallback(
     (message: PromptInputMessage) => {
-      void sendMessage(threadId, message);
+      void sendMessage(message);
     },
-    [sendMessage, threadId],
+    [sendMessage],
   );
   const handleStop = useCallback(async () => {
     await thread.stop();
@@ -78,13 +48,17 @@ export default function ChatPage() {
           <header
             className={cn(
               "absolute top-0 right-0 left-0 z-30 flex h-12 shrink-0 items-center px-4",
-              isNewThread
+              showNewThreadState
                 ? "bg-background/0 backdrop-blur-none"
                 : "bg-background/80 shadow-xs backdrop-blur",
             )}
           >
             <div className="flex w-full items-center text-sm font-medium">
-              <ThreadTitle threadId={threadId} thread={thread} />
+              <ThreadTitle
+                threadId={threadId}
+                thread={thread}
+                isNewThread={showNewThreadState}
+              />
             </div>
             <div className="flex items-center gap-2">
               <TokenUsageIndicator messages={thread.messages} />
@@ -95,7 +69,7 @@ export default function ChatPage() {
           <main className="flex min-h-0 max-w-full grow flex-col">
             <div className="flex size-full justify-center">
               <MessageList
-                className={cn("size-full", !isNewThread && "pt-10")}
+                className={cn("size-full", !showNewThreadState && "pt-10")}
                 threadId={threadId}
                 thread={thread}
               />
@@ -104,8 +78,8 @@ export default function ChatPage() {
               <div
                 className={cn(
                   "relative w-full",
-                  isNewThread && "-translate-y-[calc(50vh-96px)]",
-                  isNewThread
+                  showNewThreadState && "-translate-y-[calc(50vh-96px)]",
+                  showNewThreadState
                     ? "max-w-(--container-width-sm)"
                     : "max-w-(--container-width-md)",
                 )}
@@ -123,9 +97,9 @@ export default function ChatPage() {
                 </div>
                 <InputBox
                   className={cn("bg-background/5 w-full -translate-y-4")}
-                  isNewThread={isNewThread}
+                  isNewThread={showNewThreadState}
                   threadId={threadId}
-                  autoFocus={isNewThread}
+                  autoFocus={showNewThreadState}
                   status={
                     thread.error
                       ? "error"
@@ -135,7 +109,9 @@ export default function ChatPage() {
                   }
                   context={settings.context}
                   extraHeader={
-                    isNewThread && <Welcome mode={settings.context.mode} />
+                    showNewThreadState && (
+                      <Welcome mode={settings.context.mode} />
+                    )
                   }
                   disabled={env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true" || isUploading}
                   onContextChange={(context) => setSettings("context", context)}

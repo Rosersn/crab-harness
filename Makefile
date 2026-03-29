@@ -1,8 +1,8 @@
-# DeerFlow - Unified Development Environment
+# Crab Harness - Unified Development Environment
 
 .PHONY: help config config-upgrade check install dev dev-daemon start stop up down clean docker-init docker-start docker-stop docker-logs docker-logs-frontend docker-logs-gateway
 
-PYTHON ?= python
+PYTHON ?= python3
 BASH ?= bash
 
 # Detect OS for Windows compatibility
@@ -11,7 +11,7 @@ ifeq ($(OS),Windows_NT)
 endif
 
 help:
-	@echo "DeerFlow Development Commands:"
+	@echo "Crab Harness Development Commands:"
 	@echo "  make config          - Generate local config files (aborts if config already exists)"
 	@echo "  make config-upgrade  - Merge new fields from config.example.yaml into config.yaml"
 	@echo "  make check           - Check if all required tools are installed"
@@ -119,7 +119,6 @@ dev-daemon:
 # Stop all services
 stop:
 	@echo "Stopping all services..."
-	@-pkill -f "langgraph dev" 2>/dev/null || true
 	@-pkill -f "uvicorn app.gateway.app:app" 2>/dev/null || true
 	@-pkill -f "next dev" 2>/dev/null || true
 	@-pkill -f "next start" 2>/dev/null || true

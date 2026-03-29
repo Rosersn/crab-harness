@@ -1,11 +1,10 @@
-# DeerFlow Development Environment
+# Crab Harness Development Environment
 # Usage: docker-compose -f docker-compose-dev.yaml up --build
 #
 # Services:
 #   - nginx: Reverse proxy (port 2026)
 #   - frontend: Frontend Next.js dev server (port 3000)
-#   - gateway: Backend Gateway API (port 8001)
-#   - langgraph: LangGraph server (port 2024)
+#   - gateway: Backend Gateway API with embedded Agent runtime (port 8001)
 #   - provisioner (optional): Sandbox provisioner (creates Pods in host Kubernetes)
 #
 # Prerequisites:
@@ -58,7 +57,7 @@ services:
       start_period: 15s
 
   # ── Reverse Proxy ──────────────────────────────────────────────────────
-  # Routes API traffic to gateway/langgraph and (optionally) provisioner.
+  # Routes API traffic to gateway and (optionally) provisioner.
   # Select nginx config via NGINX_CONF:
   # - nginx.local.conf (default): no provisioner route (local/aio modes)
   # - nginx.conf: includes provisioner route (provisioner mode)
@@ -72,7 +71,6 @@ services:
     depends_on:
       - frontend
       - gateway
-      - langgraph
     networks:
       - deer-flow-dev
     restart: unless-stopped
@@ -158,63 +156,10 @@ services:
       - deer-flow-dev
     restart: unless-stopped
 
-  # Backend - LangGraph Server
-  langgraph:
-    build:
-      context: ../
-      dockerfile: backend/Dockerfile
-      # cache_from disabled - requires manual setup: mkdir -p /tmp/docker-cache-langgraph
-      args:
-        APT_MIRROR: ${APT_MIRROR:-}
-        UV_IMAGE: ${UV_IMAGE:-ghcr.io/astral-sh/uv:0.7.20}
-    container_name: deer-flow-langgraph
-    command: sh -c "cd backend && uv run langgraph dev --no-browser --allow-blocking --host 0.0.0.0 --port 2024 > /app/logs/langgraph.log 2>&1"
-    volumes:
-      - ../backend/:/app/backend/
-      # Preserve the .venv built during Docker image build — mounting the full backend/
-      # directory above would otherwise shadow it with the (empty) host directory.
-      - langgraph-venv:/app/backend/.venv
-      - ../config.yaml:/app/config.yaml
-      - ../extensions_config.json:/app/extensions_config.json
-      - ../skills:/app/skills
-      - ../logs:/app/logs
-      # Mount uv cache for faster dependency installation
-      - ~/.cache/uv:/root/.cache/uv
-      # DooD: same as gateway — AioSandboxProvider runs inside LangGraph process.
-      - /var/run/docker.sock:/var/run/docker.sock
-      # CLI auth directories for auto-auth (Claude Code + Codex CLI)
-      - type: bind
-        source: ${HOME:?HOME must be set}/.claude
-        target: /root/.claude
-        read_only: true
-        bind:
-          create_host_path: true
-      - type: bind
-        source: ${HOME:?HOME must be set}/.codex
-        target: /root/.codex
-        read_only: true
-        bind:
-          create_host_path: true
-    working_dir: /app
-    environment:
-      - CI=true
-      - DEER_FLOW_HOST_BASE_DIR=${DEER_FLOW_ROOT}/backend/.deer-flow
-      - DEER_FLOW_HOST_SKILLS_PATH=${DEER_FLOW_ROOT}/skills
-      - DEER_FLOW_SANDBOX_HOST=host.docker.internal
-    env_file:
-      - ../.env
-    extra_hosts:
-      # For Linux: map host.docker.internal to host gateway
-      - "host.docker.internal:host-gateway"
-    networks:
-      - deer-flow-dev
-    restart: unless-stopped
-
 volumes:
   # Persist .venv across container restarts so dependencies installed during
   # image build are not shadowed by the host backend/ directory mount.
   gateway-venv:
-  langgraph-venv:
 
 networks:
   deer-flow-dev:

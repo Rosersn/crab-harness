@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.gateway.deps import get_current_user
+from crab_platform.auth.interface import AuthenticatedUser
 from deerflow.config import get_app_config
 
 router = APIRouter(prefix="/api", tags=["models"])
@@ -29,7 +31,9 @@ class ModelsListResponse(BaseModel):
     summary="List All Models",
     description="Retrieve a list of all available AI models configured in the system.",
 )
-async def list_models() -> ModelsListResponse:
+async def list_models(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ModelsListResponse:
     """List all available models from configuration.
 
     Returns model information suitable for frontend display,
@@ -79,7 +83,10 @@ async def list_models() -> ModelsListResponse:
     summary="Get Model Details",
     description="Retrieve detailed information about a specific AI model by its name.",
 )
-async def get_model(model_name: str) -> ModelResponse:
+async def get_model(
+    model_name: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ModelResponse:
     """Get a specific model by name.
 
     Args:

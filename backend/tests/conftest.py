@@ -4,12 +4,17 @@ Sets up sys.path and pre-mocks modules that would cause circular import
 issues when unit-testing lightweight config/registry code in isolation.
 """
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
 # Make 'app' and 'deerflow' importable from any working directory
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Set a valid CRAB_JWT_SECRET for tests (PlatformConfig validates it).
+# Tests that need a specific value can override via monkeypatch / environ.
+os.environ.setdefault("CRAB_JWT_SECRET", "test-jwt-secret-for-unit-tests-must-be-32-chars-long")
 
 # Break the circular import chain that exists in production code:
 #   deerflow.subagents.__init__

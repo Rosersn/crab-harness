@@ -3,20 +3,27 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.gateway.config import get_gateway_config
+from app.gateway.middleware import AccessLogMiddleware, AuthEnforcementMiddleware, RequestIdMiddleware
 from app.gateway.routers import (
     agents,
     artifacts,
-    channels,
+    langgraph_compat,
     mcp,
     memory,
     models,
     skills,
     suggestions,
-    threads,
     uploads,
 )
+from app.gateway.routers import auth as auth_router
+from crab_platform.config.platform_config import get_platform_config
+from crab_platform.db import create_tables
+from crab_platform.db.repos.thread_repo import RunRepo
+from crab_platform.storage.pg_memory import resolve_pg_memory_storage
+from deerflow.agents.memory.updater import set_memory_storage_resolver
 from deerflow.config.app_config import get_app_config
 
 # Configure logging
@@ -33,7 +40,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan handler."""
 
-    # Load config and check necessary environment variables at startup
+    # Load configs
     try:
         get_app_config()
         logger.info("Configuration loaded successfully")
@@ -41,157 +48,140 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         error_msg = f"Failed to load configuration during gateway startup: {e}"
         logger.exception(error_msg)
         raise RuntimeError(error_msg) from e
+
     config = get_gateway_config()
+    platform_config = get_platform_config()
     logger.info(f"Starting API Gateway on {config.host}:{config.port}")
 
-    # NOTE: MCP tools initialization is NOT done here because:
-    # 1. Gateway doesn't use MCP tools - they are used by Agents in the LangGraph Server
-    # 2. Gateway and LangGraph Server are separate processes with independent caches
-    # MCP tools are lazily initialized in LangGraph Server when first needed
-
-    # Start IM channel service if any channels are configured
+    # Initialize DB tables
     try:
-        from app.channels.service import start_channel_service
-
-        channel_service = await start_channel_service()
-        logger.info("Channel service started: %s", channel_service.get_status())
+        await create_tables()
+        logger.info("Database tables initialized")
     except Exception:
-        logger.exception("No IM channels configured or channel service failed to start")
+        logger.exception("Failed to initialize database tables")
+        raise
+
+    set_memory_storage_resolver(resolve_pg_memory_storage)
+    logger.info("Registered user-scoped memory storage resolver")
+
+    # Crash recovery: mark orphaned runs as failed
+    try:
+        from crab_platform.db import get_session_factory
+
+        async with get_session_factory()() as session:
+            repo = RunRepo(session)
+            count = await repo.mark_orphaned_runs_failed(platform_config.instance_id)
+            if count:
+                logger.info("Crash recovery: marked %d orphaned runs as failed", count)
+            await session.commit()
+    except Exception:
+        logger.exception("Crash recovery failed")
+
+    # Start SandboxCleaner background thread (if E2B sandbox is configured)
+    try:
+        sandbox_config = get_app_config().sandbox
+        provider_use = getattr(sandbox_config, "use", "")
+        if "E2BSandboxProvider" in str(provider_use):
+            from crab_platform.sandbox.cleaner import SandboxCleaner
+
+            e2b_api_key = getattr(sandbox_config, "e2b_api_key", None) or None
+            e2b_api_url = getattr(sandbox_config, "e2b_api_url", None) or None
+            cleaner = SandboxCleaner(
+                e2b_api_key=e2b_api_key,
+                e2b_api_url=e2b_api_url,
+            )
+            cleaner.start()
+            app._sandbox_cleaner = cleaner  # type: ignore[attr-defined]
+            logger.info("SandboxCleaner started")
+    except Exception:
+        logger.debug("SandboxCleaner startup skipped or failed", exc_info=True)
 
     yield
 
-    # Stop channel service on shutdown
+    # Shutdown: clean up sandbox provider and cleaner
     try:
-        from app.channels.service import stop_channel_service
+        from deerflow.sandbox.sandbox_provider import get_sandbox_provider
 
-        await stop_channel_service()
+        provider = get_sandbox_provider()
+        if hasattr(provider, "shutdown"):
+            provider.shutdown()
+            logger.info("Sandbox provider shut down")
     except Exception:
-        logger.exception("Failed to stop channel service")
+        logger.debug("Sandbox provider shutdown skipped or failed", exc_info=True)
+
+    try:
+        if hasattr(app, "_sandbox_cleaner"):
+            app._sandbox_cleaner.stop()
+            logger.info("SandboxCleaner stopped")
+    except Exception:
+        logger.debug("SandboxCleaner stop skipped or failed", exc_info=True)
+
+    set_memory_storage_resolver(None)
+
     logger.info("Shutting down API Gateway")
 
 
 def create_app() -> FastAPI:
-    """Create and configure the FastAPI application.
+    """Create and configure the FastAPI application."""
 
-    Returns:
-        Configured FastAPI application instance.
-    """
+    config = get_gateway_config()
 
     app = FastAPI(
-        title="DeerFlow API Gateway",
-        description="""
-## DeerFlow API Gateway
-
-API Gateway for DeerFlow - A LangGraph-based AI agent backend with sandbox execution capabilities.
-
-### Features
-
-- **Models Management**: Query and retrieve available AI models
-- **MCP Configuration**: Manage Model Context Protocol (MCP) server configurations
-- **Memory Management**: Access and manage global memory data for personalized conversations
-- **Skills Management**: Query and manage skills and their enabled status
-- **Artifacts**: Access thread artifacts and generated files
-- **Health Monitoring**: System health check endpoints
-
-### Architecture
-
-LangGraph requests are handled by nginx reverse proxy.
-This gateway provides custom endpoints for models, MCP configuration, skills, and artifacts.
-        """,
+        title="Crab Harness API Gateway",
+        description="Multi-tenant AI Agent API Gateway",
         version="0.1.0",
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
         openapi_tags=[
-            {
-                "name": "models",
-                "description": "Operations for querying available AI models and their configurations",
-            },
-            {
-                "name": "mcp",
-                "description": "Manage Model Context Protocol (MCP) server configurations",
-            },
-            {
-                "name": "memory",
-                "description": "Access and manage global memory data for personalized conversations",
-            },
-            {
-                "name": "skills",
-                "description": "Manage skills and their configurations",
-            },
-            {
-                "name": "artifacts",
-                "description": "Access and download thread artifacts and generated files",
-            },
-            {
-                "name": "uploads",
-                "description": "Upload and manage user files for threads",
-            },
-            {
-                "name": "threads",
-                "description": "Manage DeerFlow thread-local filesystem data",
-            },
-            {
-                "name": "agents",
-                "description": "Create and manage custom agents with per-agent config and prompts",
-            },
-            {
-                "name": "suggestions",
-                "description": "Generate follow-up question suggestions for conversations",
-            },
-            {
-                "name": "channels",
-                "description": "Manage IM channel integrations (Feishu, Slack, Telegram)",
-            },
-            {
-                "name": "health",
-                "description": "Health check and system status endpoints",
-            },
+            {"name": "auth", "description": "Authentication: register, login, refresh, me"},
+            {"name": "models", "description": "Query available AI models and configurations"},
+            {"name": "mcp", "description": "Manage MCP server configurations"},
+            {"name": "memory", "description": "Access and manage user memory data"},
+            {"name": "skills", "description": "Manage skills and configurations"},
+            {"name": "artifacts", "description": "Access thread artifacts and generated files"},
+            {"name": "uploads", "description": "Upload and manage user files for threads"},
+            {"name": "threads", "description": "Thread CRUD and lifecycle management"},
+            {"name": "agents", "description": "Create and manage custom agents"},
+            {"name": "suggestions", "description": "Generate follow-up question suggestions"},
+            {"name": "health", "description": "Health check and system status"},
         ],
     )
 
-    # CORS is handled by nginx - no need for FastAPI middleware
+    # Middleware (outermost first)
+    app.add_middleware(AccessLogMiddleware)
+    app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(AuthEnforcementMiddleware)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["Content-Location"],
+    )
 
-    # Include routers
-    # Models API is mounted at /api/models
+    # Auth routes (public, no auth required)
+    app.include_router(auth_router.router)
+
+    # LangGraph SDK-compatible endpoints
+    app.include_router(langgraph_compat.router)
+
+    # Protected routes
     app.include_router(models.router)
-
-    # MCP API is mounted at /api/mcp
     app.include_router(mcp.router)
-
-    # Memory API is mounted at /api/memory
     app.include_router(memory.router)
-
-    # Skills API is mounted at /api/skills
     app.include_router(skills.router)
-
-    # Artifacts API is mounted at /api/threads/{thread_id}/artifacts
     app.include_router(artifacts.router)
-
-    # Uploads API is mounted at /api/threads/{thread_id}/uploads
     app.include_router(uploads.router)
-
-    # Thread cleanup API is mounted at /api/threads/{thread_id}
-    app.include_router(threads.router)
-
-    # Agents API is mounted at /api/agents
     app.include_router(agents.router)
-
-    # Suggestions API is mounted at /api/threads/{thread_id}/suggestions
     app.include_router(suggestions.router)
-
-    # Channels API is mounted at /api/channels
-    app.include_router(channels.router)
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict:
-        """Health check endpoint.
-
-        Returns:
-            Service health status information.
-        """
-        return {"status": "healthy", "service": "deer-flow-gateway"}
+        """Health check endpoint."""
+        return {"status": "healthy", "service": "crab-harness-gateway"}
 
     return app
 

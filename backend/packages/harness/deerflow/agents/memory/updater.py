@@ -4,7 +4,8 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from deerflow.agents.memory.prompt import (
@@ -16,6 +17,19 @@ from deerflow.config.memory_config import get_memory_config
 from deerflow.models import create_chat_model
 
 logger = logging.getLogger(__name__)
+
+_memory_storage_resolver: Callable[[str, str], Any] | None = None
+
+
+def set_memory_storage_resolver(resolver: Callable[[str, str], Any] | None) -> None:
+    """Register an optional user-scoped memory storage resolver.
+
+    The harness stays platform-agnostic by treating this as an injectable hook.
+    Multi-tenant runtimes can register a resolver that returns a user-scoped
+    storage backend, while local single-user mode simply leaves it unset.
+    """
+    global _memory_storage_resolver
+    _memory_storage_resolver = resolver
 
 def get_memory_data(agent_name: str | None = None) -> dict[str, Any]:
     """Get the current memory data via storage provider."""
@@ -126,13 +140,34 @@ class MemoryUpdater:
         model_name = self._model_name or config.model_name
         return create_chat_model(name=model_name, thinking_enabled=False)
 
-    def update_memory(self, messages: list[Any], thread_id: str | None = None, agent_name: str | None = None) -> bool:
+    @staticmethod
+    def _resolve_storage(user_id: str | None = None, tenant_id: str | None = None) -> Any:
+        """Resolve the appropriate memory storage backend.
+
+        When user_id and tenant_id are provided and a resolver has been
+        registered, creates a user-scoped storage backend. Otherwise falls back
+        to the global file-based singleton used by local mode.
+        """
+        if user_id and tenant_id and _memory_storage_resolver is not None:
+            try:
+                return _memory_storage_resolver(user_id, tenant_id)
+            except Exception:
+                logger.warning(
+                    "Failed to resolve user-scoped memory storage for user %s, falling back to file storage",
+                    user_id,
+                    exc_info=True,
+                )
+        return get_memory_storage()
+
+    def update_memory(self, messages: list[Any], thread_id: str | None = None, agent_name: str | None = None, user_id: str | None = None, tenant_id: str | None = None) -> bool:
         """Update memory based on conversation messages.
 
         Args:
             messages: List of conversation messages.
             thread_id: Optional thread ID for tracking source.
             agent_name: If provided, updates per-agent memory. If None, updates global memory.
+            user_id: If provided with tenant_id, routes to per-user PG storage.
+            tenant_id: Tenant ID for per-user PG storage.
 
         Returns:
             True if update was successful, False otherwise.
@@ -145,8 +180,12 @@ class MemoryUpdater:
             return False
 
         try:
+            # Resolve storage: per-user PG storage when user context is present,
+            # otherwise global file-based singleton.
+            storage = self._resolve_storage(user_id=user_id, tenant_id=tenant_id)
+
             # Get current memory
-            current_memory = get_memory_data(agent_name)
+            current_memory = storage.load(agent_name)
 
             # Format conversation for prompt
             conversation_text = format_conversation_for_update(messages)
@@ -183,7 +222,7 @@ class MemoryUpdater:
             updated_memory = _strip_upload_mentions_from_memory(updated_memory)
 
             # Save
-            return get_memory_storage().save(updated_memory, agent_name)
+            return storage.save(updated_memory, agent_name)
 
         except json.JSONDecodeError as e:
             logger.warning("Failed to parse LLM response for memory update: %s", e)
@@ -209,7 +248,7 @@ class MemoryUpdater:
             Updated memory data.
         """
         config = get_memory_config()
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
         # Update user sections
         user_updates = update_data.get("user", {})

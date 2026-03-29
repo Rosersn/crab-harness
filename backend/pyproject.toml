@@ -1,28 +1,26 @@
 [project]
-name = "deer-flow"
+name = "crab-harness"
 version = "0.1.0"
-description = "LangGraph-based AI agent system with sandbox execution capabilities"
+description = "Multi-tenant AI Agent platform with sandbox execution capabilities"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "deerflow-harness",
+    "crab-platform",
     "fastapi>=0.115.0",
     "httpx>=0.28.0",
     "python-multipart>=0.0.20",
+    "pydantic[email]>=2.0",
     "sse-starlette>=2.1.0",
     "uvicorn[standard]>=0.34.0",
-    "lark-oapi>=1.4.0",
-    "slack-sdk>=3.33.0",
-    "python-telegram-bot>=21.0",
-    "langgraph-sdk>=0.1.51",
-    "markdown-to-mrkdwn>=0.3.1",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0.0", "ruff>=0.14.11"]
+dev = ["pytest>=8.0.0", "ruff>=0.14.11", "pytest-asyncio>=0.24.0", "httpx>=0.28.0"]
 
 [tool.uv.workspace]
-members = ["packages/harness"]
+members = ["packages/harness", "packages/platform"]
 
 [tool.uv.sources]
 deerflow-harness = { workspace = true }
+crab-platform = { workspace = true }

@@ -4,19 +4,19 @@ import { useEffect } from "react";
 import { useI18n } from "@/core/i18n/hooks";
 import type { AgentThreadState } from "@/core/threads";
 
-import { useThreadChat } from "./chats";
 import { FlipDisplay } from "./flip-display";
 
 export function ThreadTitle({
   threadId,
   thread,
+  isNewThread = false,
 }: {
   className?: string;
   threadId: string;
   thread: BaseStream<AgentThreadState>;
+  isNewThread?: boolean;
 }) {
   const { t } = useI18n();
-  const { isNewThread } = useThreadChat();
   useEffect(() => {
     let _title = t.pages.untitled;
 

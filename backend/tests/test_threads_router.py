@@ -1,11 +1,18 @@
+import uuid
 from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from app.gateway.deps import get_current_user
 from app.gateway.routers import threads
+from crab_platform.auth.interface import AuthenticatedUser
 from deerflow.config.paths import Paths
+
+_FAKE_USER = AuthenticatedUser(
+    user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), email="test@example.com", role="member",
+)
 
 
 def test_delete_thread_data_removes_thread_directory(tmp_path):
@@ -56,14 +63,15 @@ def test_delete_thread_route_cleans_thread_directory(tmp_path):
 
     app = FastAPI()
     app.include_router(threads.router)
+    app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
 
     with patch("app.gateway.routers.threads.get_paths", return_value=paths):
         with TestClient(app) as client:
             response = client.delete("/api/threads/thread-route")
 
-    assert response.status_code == 200
-    assert response.json() == {"success": True, "message": "Deleted local thread data for thread-route"}
-    assert not thread_dir.exists()
+    assert response.status_code == 410
+    assert "DELETE /api/langgraph/threads/{thread_id}" in response.json()["detail"]
+    assert thread_dir.exists()
 
 
 def test_delete_thread_route_rejects_invalid_thread_id(tmp_path):
@@ -84,13 +92,14 @@ def test_delete_thread_route_returns_422_for_route_safe_invalid_id(tmp_path):
 
     app = FastAPI()
     app.include_router(threads.router)
+    app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
 
     with patch("app.gateway.routers.threads.get_paths", return_value=paths):
         with TestClient(app) as client:
             response = client.delete("/api/threads/thread.with.dot")
 
-    assert response.status_code == 422
-    assert "Invalid thread_id" in response.json()["detail"]
+    assert response.status_code == 410
+    assert "local thread cleanup is no longer a separate public API" in response.json()["detail"]
 
 
 def test_delete_thread_data_returns_generic_500_error(tmp_path):

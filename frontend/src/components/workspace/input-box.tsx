@@ -56,6 +56,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { getBackendBaseURL } from "@/core/config";
+import { fetchWithAuth } from "@/core/http/fetch";
 import { useI18n } from "@/core/i18n/hooks";
 import { useModels } from "@/core/models/hooks";
 import type { AgentThreadContext } from "@/core/threads";
@@ -347,7 +348,7 @@ export function InputBox({
     setFollowupsLoading(true);
     setFollowups([]);
 
-    fetch(`${getBackendBaseURL()}/api/threads/${threadId}/suggestions`, {
+    fetchWithAuth(`${getBackendBaseURL()}/api/threads/${threadId}/suggestions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

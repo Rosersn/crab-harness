@@ -1,21 +1,36 @@
-"""Upload router for handling file uploads."""
+"""Upload router for handling file uploads.
+
+Files are stored in object storage (BOS/local) with metadata in PostgreSQL.
+Additionally, files are written to the local thread directory and synced to
+the sandbox so that UploadsMiddleware and the Agent can discover them.
+This local write will become unnecessary once E2B sandbox (Phase 4) replaces
+the local sandbox — at that point files will be injected from BOS directly.
+"""
+
+import asyncio
 
 import logging
 import os
+import shlex
 import stat
+import tempfile
+import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.gateway.deps import get_current_user
+from crab_platform.auth.interface import AuthenticatedUser
+from crab_platform.db import get_db
+from crab_platform.db.repos.thread_repo import ThreadRepo
+from crab_platform.db.repos.upload_repo import UploadRepo
+from crab_platform.storage import get_object_storage
 from deerflow.config.paths import get_paths
 from deerflow.sandbox.sandbox_provider import get_sandbox_provider
 from deerflow.uploads.manager import (
-    PathTraversalError,
-    delete_file_safe,
-    enrich_file_listing,
     ensure_uploads_dir,
-    get_uploads_dir,
-    list_files_in_dir,
     normalize_filename,
     upload_artifact_url,
     upload_virtual_path,
@@ -35,97 +50,236 @@ class UploadResponse(BaseModel):
     message: str
 
 
-def _make_file_sandbox_writable(file_path: os.PathLike[str] | str) -> None:
-    """Ensure uploaded files remain writable when mounted into non-local sandboxes.
+def _bos_key(tenant_id: uuid.UUID, user_id: uuid.UUID, thread_id: uuid.UUID, upload_id: uuid.UUID, filename: str) -> str:
+    """Build the BOS object key for an uploaded file."""
+    return f"{tenant_id}/{user_id}/uploads/{thread_id}/{upload_id}_{filename}"
 
-    In AIO sandbox mode, the gateway writes the authoritative host-side file
-    first, then the sandbox runtime may rewrite the same mounted path. Granting
-    world-writable access here prevents permission mismatches between the
-    gateway user and the sandbox runtime user.
-    """
+
+def _bos_md_key(bos_key: str) -> str:
+    """Build the BOS key for the markdown companion of an upload."""
+    return f"{bos_key}.md"
+
+
+def _make_file_sandbox_writable(file_path: os.PathLike[str] | str) -> None:
+    """Ensure uploaded files remain writable when mounted into non-local sandboxes."""
     file_stat = os.lstat(file_path)
     if stat.S_ISLNK(file_stat.st_mode):
         logger.warning("Skipping sandbox chmod for symlinked upload path: %s", file_path)
         return
-
-    writable_mode = (
-        stat.S_IMODE(file_stat.st_mode) | stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
-    )
+    writable_mode = stat.S_IMODE(file_stat.st_mode) | stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
     chmod_kwargs = {"follow_symlinks": False} if os.chmod in os.supports_follow_symlinks else {}
     os.chmod(file_path, writable_mode, **chmod_kwargs)
+
+
+async def _verify_thread_ownership(thread_id: uuid.UUID, user: AuthenticatedUser, db: AsyncSession) -> None:
+    """Verify the thread belongs to the current user, or does not exist yet (allow)."""
+    thread = await ThreadRepo(db).get(thread_id)
+    if thread is not None and thread.user_id != user.user_id:
+        raise HTTPException(status_code=403, detail="Thread not owned by current user")
+
+
+async def _ensure_owned_thread_exists(
+    thread_id: uuid.UUID,
+    user: AuthenticatedUser,
+    db: AsyncSession,
+) -> None:
+    """Ensure a draft thread exists before persisting upload metadata.
+
+    New conversations can upload files before the first LangGraph run creates
+    the thread row. In that case we materialize the thread eagerly so the
+    upload metadata FK remains valid.
+    """
+    repo = ThreadRepo(db)
+    thread = await repo.get(thread_id)
+    if thread is not None:
+        if thread.user_id != user.user_id:
+            raise HTTPException(status_code=403, detail="Thread not owned by current user")
+        return
+
+    await repo.create(
+        id=thread_id,
+        tenant_id=user.tenant_id,
+        user_id=user.user_id,
+    )
+
+
+async def _acquire_sandbox_for_upload(thread_id: str):
+    """Acquire the sandbox without blocking the request event loop."""
+    provider = get_sandbox_provider()
+    sandbox_id = await asyncio.to_thread(provider.acquire, thread_id)
+    sandbox = provider.get(sandbox_id)
+    return provider, sandbox_id, sandbox
+
+
+async def _release_sandbox_after_upload(provider, sandbox_id: str) -> None:
+    """Release the sandbox from a worker thread to avoid nested event loops."""
+    await asyncio.to_thread(provider.release, sandbox_id)
+
+
+async def _sync_upload_to_sandbox(sandbox, virtual_path: str, content: bytes) -> None:
+    """Write uploaded content into the sandbox from a worker thread."""
+    await asyncio.to_thread(sandbox.update_file, virtual_path, content)
 
 
 @router.post("", response_model=UploadResponse)
 async def upload_files(
     thread_id: str,
     files: list[UploadFile] = File(...),
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> UploadResponse:
-    """Upload multiple files to a thread's uploads directory."""
+    """Upload multiple files to object storage + local thread dir with PG metadata."""
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
 
     try:
-        uploads_dir = ensure_uploads_dir(thread_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        tid = uuid.UUID(thread_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid thread_id")
+
+    await _ensure_owned_thread_exists(tid, user, db)
+
+    storage = get_object_storage()
+    upload_repo = UploadRepo(db)
+    uploaded_files: list[dict[str, str]] = []
+    existing_names = {u.filename for u in await upload_repo.list_for_thread(tid, user.user_id)}
+    batch_names: set[str] = set()
+
+    # Local thread directory + sandbox (for UploadsMiddleware / Agent compatibility)
+    try:
+        local_uploads_dir = ensure_uploads_dir(thread_id)
+    except ValueError:
+        local_uploads_dir = None
+
     sandbox_uploads = get_paths().sandbox_uploads_dir(thread_id)
-    uploaded_files = []
+    sandbox_provider, sandbox_id, sandbox = await _acquire_sandbox_for_upload(thread_id)
+    if sandbox_id != "local" and sandbox is None:
+        raise HTTPException(status_code=500, detail="Failed to acquire sandbox for thread uploads")
 
-    sandbox_provider = get_sandbox_provider()
-    sandbox_id = sandbox_provider.acquire(thread_id)
-    sandbox = sandbox_provider.get(sandbox_id)
+    try:
+        for file in files:
+            if not file.filename:
+                continue
 
-    for file in files:
-        if not file.filename:
-            continue
+            try:
+                safe_filename = normalize_filename(file.filename)
+            except ValueError:
+                logger.warning("Skipping file with unsafe filename: %r", file.filename)
+                continue
 
-        try:
-            safe_filename = normalize_filename(file.filename)
-        except ValueError:
-            logger.warning(f"Skipping file with unsafe filename: {file.filename!r}")
-            continue
+            if safe_filename in existing_names or safe_filename in batch_names:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"File '{safe_filename}' already exists in this thread. Rename it before uploading again.",
+                )
+            batch_names.add(safe_filename)
 
-        try:
-            content = await file.read()
-            file_path = uploads_dir / safe_filename
-            file_path.write_bytes(content)
+            try:
+                content = await file.read()
+                upload_id = uuid.uuid4()
+                key = _bos_key(user.tenant_id, user.user_id, tid, upload_id, safe_filename)
 
-            virtual_path = upload_virtual_path(safe_filename)
+                # 1. Store in object storage (BOS / local storage backend)
+                content_type = file.content_type or "application/octet-stream"
+                await storage.put(key, content, content_type=content_type)
 
-            if sandbox_id != "local":
-                _make_file_sandbox_writable(file_path)
-                sandbox.update_file(virtual_path, content)
-
-            file_info = {
-                "filename": safe_filename,
-                "size": str(len(content)),
-                "path": str(sandbox_uploads / safe_filename),
-                "virtual_path": virtual_path,
-                "artifact_url": upload_artifact_url(thread_id, safe_filename),
-            }
-
-            logger.info(f"Saved file: {safe_filename} ({len(content)} bytes) to {file_info['path']}")
-
-            file_ext = file_path.suffix.lower()
-            if file_ext in CONVERTIBLE_EXTENSIONS:
-                md_path = await convert_file_to_markdown(file_path)
-                if md_path:
-                    md_virtual_path = upload_virtual_path(md_path.name)
-
+                # 2. Write to local thread directory (for UploadsMiddleware + sandbox compat)
+                if local_uploads_dir is not None:
+                    local_path = local_uploads_dir / safe_filename
+                    local_path.write_bytes(content)
                     if sandbox_id != "local":
-                        _make_file_sandbox_writable(md_path)
-                        sandbox.update_file(md_virtual_path, md_path.read_bytes())
+                        _make_file_sandbox_writable(local_path)
 
-                    file_info["markdown_file"] = md_path.name
-                    file_info["markdown_path"] = str(sandbox_uploads / md_path.name)
-                    file_info["markdown_virtual_path"] = md_virtual_path
-                    file_info["markdown_artifact_url"] = upload_artifact_url(thread_id, md_path.name)
+                # 3. Sync to sandbox (non-local sandbox only)
+                virtual_path = upload_virtual_path(safe_filename)
+                if sandbox_id != "local":
+                    await _sync_upload_to_sandbox(sandbox, virtual_path, content)
 
-            uploaded_files.append(file_info)
+                file_info: dict[str, str] = {
+                    "filename": safe_filename,
+                    "size": str(len(content)),
+                    "path": str(sandbox_uploads / safe_filename),
+                    "virtual_path": virtual_path,
+                    "artifact_url": upload_artifact_url(thread_id, safe_filename),
+                }
 
-        except Exception as e:
-            logger.error(f"Failed to upload {file.filename}: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to upload {file.filename}: {str(e)}")
+                markdown_bos_key: str | None = None
+
+                # 4. Convert document to markdown if applicable
+                file_ext = Path(safe_filename).suffix.lower()
+                if file_ext in CONVERTIBLE_EXTENSIONS:
+                    # Use local file if available, otherwise temp file
+                    convert_source = local_uploads_dir / safe_filename if local_uploads_dir else None
+                    tmp_path: Path | None = None
+                    if convert_source is None or not convert_source.exists():
+                        tmp = tempfile.NamedTemporaryFile(suffix=file_ext, delete=False)
+                        tmp.write(content)
+                        tmp.close()
+                        convert_source = Path(tmp.name)
+                        tmp_path = convert_source
+
+                    try:
+                        md_path = await convert_file_to_markdown(convert_source)
+                        if md_path:
+                            md_content = md_path.read_bytes()
+                            md_key = _bos_md_key(key)
+                            await storage.put(md_key, md_content, content_type="text/markdown")
+                            markdown_bos_key = md_key
+
+                            md_name = f"{safe_filename}.extracted.md"
+                            md_virtual_path = upload_virtual_path(md_name)
+
+                            # Write markdown to local dir + sandbox
+                            if local_uploads_dir is not None:
+                                local_md = local_uploads_dir / md_name
+                                if not local_md.exists():
+                                    local_md.write_bytes(md_content)
+                                if sandbox_id != "local":
+                                    _make_file_sandbox_writable(local_md)
+
+                            if sandbox_id != "local":
+                                await _sync_upload_to_sandbox(sandbox, md_virtual_path, md_content)
+
+                            file_info["markdown_file"] = md_name
+                            file_info["markdown_path"] = str(sandbox_uploads / md_name)
+                            file_info["markdown_virtual_path"] = md_virtual_path
+                            file_info["markdown_artifact_url"] = upload_artifact_url(thread_id, md_name)
+
+                            # Clean up temp markdown if it's not in uploads dir
+                            if md_path.parent != local_uploads_dir:
+                                md_path.unlink(missing_ok=True)
+                    finally:
+                        if tmp_path is not None:
+                            tmp_path.unlink(missing_ok=True)
+
+                # 5. Write metadata to PG
+                record = await upload_repo.create(
+                    thread_id=tid,
+                    user_id=user.user_id,
+                    tenant_id=user.tenant_id,
+                    filename=safe_filename,
+                    size_bytes=len(content),
+                    bos_key=key,
+                    markdown_bos_key=markdown_bos_key,
+                )
+                file_info["upload_id"] = str(record.id)
+
+                logger.info("Uploaded %s (%d bytes) → %s", safe_filename, len(content), key)
+                uploaded_files.append(file_info)
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error("Failed to upload %s: %s", file.filename, e)
+                raise HTTPException(status_code=500, detail=f"Failed to upload {file.filename}: {e}")
+    finally:
+        # Always release the sandbox to avoid keeping it pinned
+        try:
+            await _release_sandbox_after_upload(sandbox_provider, sandbox_id)
+        except Exception:
+            logger.debug("Failed to release sandbox %s after upload", sandbox_id, exc_info=True)
+
+    await db.commit()
 
     return UploadResponse(
         success=True,
@@ -135,36 +289,104 @@ async def upload_files(
 
 
 @router.get("/list", response_model=dict)
-async def list_uploaded_files(thread_id: str) -> dict:
-    """List all files in a thread's uploads directory."""
+async def list_uploaded_files(
+    thread_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """List all uploaded files for a thread from PG metadata."""
     try:
-        uploads_dir = get_uploads_dir(thread_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    result = list_files_in_dir(uploads_dir)
-    enrich_file_listing(result, thread_id)
+        tid = uuid.UUID(thread_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid thread_id")
 
-    # Gateway additionally includes the sandbox-relative path.
+    await _verify_thread_ownership(tid, user, db)
+
+    uploads = await UploadRepo(db).list_for_thread(tid, user.user_id)
     sandbox_uploads = get_paths().sandbox_uploads_dir(thread_id)
-    for f in result["files"]:
-        f["path"] = str(sandbox_uploads / f["filename"])
+    files = []
+    for u in uploads:
+        info: dict[str, str] = {
+            "upload_id": str(u.id),
+            "filename": u.filename,
+            "size": str(u.size_bytes),
+            "path": str(sandbox_uploads / u.filename),
+            "virtual_path": upload_virtual_path(u.filename),
+            "artifact_url": upload_artifact_url(thread_id, u.filename),
+        }
+        if u.markdown_bos_key:
+            md_name = f"{u.filename}.extracted.md"
+            info["markdown_file"] = md_name
+            info["markdown_path"] = str(sandbox_uploads / md_name)
+            info["markdown_virtual_path"] = upload_virtual_path(md_name)
+            info["markdown_artifact_url"] = upload_artifact_url(thread_id, md_name)
+        files.append(info)
 
-    return result
+    return {"files": files, "count": len(files)}
 
 
 @router.delete("/{filename}")
-async def delete_uploaded_file(thread_id: str, filename: str) -> dict:
-    """Delete a file from a thread's uploads directory."""
+async def delete_uploaded_file(
+    thread_id: str,
+    filename: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete an uploaded file from object storage, local dir, and PG metadata."""
     try:
-        uploads_dir = get_uploads_dir(thread_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    try:
-        return delete_file_safe(uploads_dir, filename, convertible_extensions=CONVERTIBLE_EXTENSIONS)
-    except FileNotFoundError:
+        tid = uuid.UUID(thread_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid thread_id")
+
+    await _verify_thread_ownership(tid, user, db)
+
+    upload_repo = UploadRepo(db)
+    record = await upload_repo.get_by_filename(tid, user.user_id, filename)
+    if record is None:
         raise HTTPException(status_code=404, detail=f"File not found: {filename}")
-    except PathTraversalError:
-        raise HTTPException(status_code=400, detail="Invalid path")
-    except Exception as e:
-        logger.error(f"Failed to delete {filename}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete {filename}: {str(e)}")
+
+    storage = get_object_storage()
+
+    # Delete from object storage (best-effort — PG is source of truth)
+    try:
+        await storage.delete(record.bos_key)
+        if record.markdown_bos_key:
+            await storage.delete(record.markdown_bos_key)
+    except Exception:
+        logger.warning("Failed to delete object storage key %s (continuing)", record.bos_key)
+
+    # Delete from local thread directory (best-effort)
+    try:
+        from deerflow.uploads.manager import get_uploads_dir
+        local_dir = get_uploads_dir(thread_id)
+        local_file = local_dir / filename
+        if local_file.is_file():
+            local_file.unlink()
+            # Also clean up companion markdown
+            if record.markdown_bos_key:
+                md_file = local_dir / f"{filename}.extracted.md"
+                md_file.unlink(missing_ok=True)
+    except Exception:
+        logger.warning("Failed to delete local file %s (continuing)", filename)
+
+    # Delete from sandbox if a thread-bound sandbox already exists
+    try:
+        thread = await ThreadRepo(db).get(tid)
+        if thread and thread.sandbox_id:
+            sandbox_provider = get_sandbox_provider()
+            sandbox = sandbox_provider.get(thread.sandbox_id)
+            if sandbox is not None:
+                sandbox.execute_command(
+                    "rm -f "
+                    + shlex.quote(upload_virtual_path(filename))
+                    + " "
+                    + shlex.quote(upload_virtual_path(f"{filename}.extracted.md"))
+                )
+    except Exception:
+        logger.warning("Failed to delete sandbox copy for %s (continuing)", filename, exc_info=True)
+
+    # Delete from PG
+    await upload_repo.delete(record.id)
+    await db.commit()
+
+    return {"success": True, "message": f"Deleted {filename}"}

@@ -371,11 +371,16 @@ def _get_memory_context(agent_name: str | None = None) -> str:
         return ""
 
 
-def get_skills_prompt_section(available_skills: set[str] | None = None) -> str:
+def get_skills_prompt_section(available_skills: set[str] | None = None, extra_skills: list | None = None) -> str:
     """Generate the skills prompt section with available skills list.
 
     Returns the <skill_system>...</skill_system> block listing all enabled skills,
     suitable for injection into any agent's system prompt.
+
+    Args:
+        available_skills: If provided, only include skills whose name is in this set.
+        extra_skills: Additional Skill objects to include (e.g., custom user skills
+            from BOS that are not on the local filesystem).
     """
     skills = load_skills(enabled_only=True)
 
@@ -387,8 +392,15 @@ def get_skills_prompt_section(available_skills: set[str] | None = None) -> str:
     except Exception:
         container_base_path = "/mnt/skills"
 
-    if not skills:
+    if not skills and not extra_skills:
         return ""
+
+    # Merge extra skills (e.g. custom user skills from BOS)
+    if extra_skills:
+        existing_names = {s.name for s in skills}
+        for s in extra_skills:
+            if s.name not in existing_names:
+                skills.append(s)
 
     if available_skills is not None:
         skills = [skill for skill in skills if skill.name in available_skills]
@@ -468,9 +480,19 @@ def _build_acp_section() -> str:
     )
 
 
-def apply_prompt_template(subagent_enabled: bool = False, max_concurrent_subagents: int = 3, *, agent_name: str | None = None, available_skills: set[str] | None = None) -> str:
-    # Get memory context
-    memory_context = _get_memory_context(agent_name)
+def apply_prompt_template(
+    subagent_enabled: bool = False,
+    max_concurrent_subagents: int = 3,
+    *,
+    agent_name: str | None = None,
+    available_skills: set[str] | None = None,
+    extra_skills: list | None = None,
+    memory_context: str | None = None,
+    default_agent_name: str = "DeerFlow 2.0",
+) -> str:
+    # Get memory context — use caller-provided value or fall back to file-based
+    if memory_context is None:
+        memory_context = _get_memory_context(agent_name)
 
     # Include subagent section only if enabled (from runtime parameter)
     n = max_concurrent_subagents
@@ -495,7 +517,7 @@ def apply_prompt_template(subagent_enabled: bool = False, max_concurrent_subagen
     )
 
     # Get skills section
-    skills_section = get_skills_prompt_section(available_skills)
+    skills_section = get_skills_prompt_section(available_skills, extra_skills=extra_skills)
 
     # Get deferred tools section (tool_search)
     deferred_tools_section = get_deferred_tools_prompt_section()
@@ -505,7 +527,7 @@ def apply_prompt_template(subagent_enabled: bool = False, max_concurrent_subagen
 
     # Format the prompt with dynamic skills and memory
     prompt = SYSTEM_PROMPT_TEMPLATE.format(
-        agent_name=agent_name or "DeerFlow 2.0",
+        agent_name=agent_name or default_agent_name,
         soul=get_agent_soul(agent_name),
         skills_section=skills_section,
         deferred_tools_section=deferred_tools_section,

@@ -1,8 +1,10 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.gateway.deps import get_current_user
+from crab_platform.auth.interface import AuthenticatedUser
 from deerflow.config.paths import Paths, get_paths
 
 logger = logging.getLogger(__name__)
@@ -32,10 +34,17 @@ def _delete_thread_data(thread_id: str, paths: Paths | None = None) -> ThreadDel
 
 
 @router.delete("/{thread_id}", response_model=ThreadDeleteResponse)
-async def delete_thread_data(thread_id: str) -> ThreadDeleteResponse:
-    """Delete local persisted filesystem data for a thread.
+async def delete_thread_data(
+    thread_id: str,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> ThreadDeleteResponse:
+    """Deprecated legacy endpoint.
 
-    This endpoint only cleans DeerFlow-managed thread directories. LangGraph
-    thread state deletion remains handled by the LangGraph API.
+    Thread deletion is handled by ``/api/langgraph/threads/{thread_id}``, which
+    now also performs external resource cleanup. This route stays as a hard
+    failure so old clients do not silently bypass the supported path.
     """
-    return _delete_thread_data(thread_id)
+    raise HTTPException(
+        status_code=410,
+        detail="Use DELETE /api/langgraph/threads/{thread_id}; local thread cleanup is no longer a separate public API.",
+    )

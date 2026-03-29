@@ -1,8 +1,8 @@
 "use client";
 
 import { SparklesIcon } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -56,7 +56,6 @@ function SkillSettingsList({
   onClose?: () => void;
 }) {
   const { t } = useI18n();
-  const router = useRouter();
   const [filter, setFilter] = useState<string>("public");
   const { mutate: enableSkill } = useEnableSkill();
   const filteredSkills = useMemo(
@@ -65,7 +64,9 @@ function SkillSettingsList({
   );
   const handleCreateSkill = () => {
     onClose?.();
-    router.push("/workspace/chats/new?mode=skill");
+    toast.error(
+      "Browser-based custom skill creation is not available in cloud mode yet.",
+    );
   };
   return (
     <div className="flex w-full flex-col gap-4">

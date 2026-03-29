@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# start-daemon.sh - Start all DeerFlow development services in daemon mode
+# start-daemon.sh - Start all Crab Harness development services in daemon mode
 #
-# This script starts DeerFlow services in the background without keeping
+# This script starts services in the background without keeping
 # the terminal connection. Logs are written to separate files.
 #
 # Must be run from the repo root directory.
@@ -12,12 +12,19 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# ── Load environment variables from .env ──────────────────────────────────────
+if [ -f "$REPO_ROOT/.env" ]; then
+    set -a
+    source "$REPO_ROOT/.env"
+    set +a
+fi
+
 # ── Stop existing services ────────────────────────────────────────────────────
 
 echo "Stopping existing services if any..."
-pkill -f "langgraph dev" 2>/dev/null || true
 pkill -f "uvicorn app.gateway.app:app" 2>/dev/null || true
 pkill -f "next dev" 2>/dev/null || true
+pkill -f "next-server" 2>/dev/null || true
 nginx -c "$REPO_ROOT/docker/nginx/nginx.local.conf" -p "$REPO_ROOT" -s quit 2>/dev/null || true
 sleep 1
 pkill -9 nginx 2>/dev/null || true
@@ -28,7 +35,7 @@ sleep 1
 
 echo ""
 echo "=========================================="
-echo " Starting DeerFlow in Daemon Mode"
+echo " Starting Crab Harness in Daemon Mode"
 echo "=========================================="
 echo ""
 
@@ -39,7 +46,7 @@ if ! { \
         [ -f backend/config.yaml ] || \
         [ -f config.yaml ]; \
     }; then
-    echo "✗ No DeerFlow config file found."
+    echo "✗ No config file found."
     echo "  Checked these locations:"
     echo "    - $DEER_FLOW_CONFIG_PATH (when DEER_FLOW_CONFIG_PATH is set)"
     echo "    - backend/config.yaml"
@@ -57,9 +64,9 @@ fi
 
 cleanup_on_failure() {
     echo "Failed to start services, cleaning up..."
-    pkill -f "langgraph dev" 2>/dev/null || true
     pkill -f "uvicorn app.gateway.app:app" 2>/dev/null || true
     pkill -f "next dev" 2>/dev/null || true
+    pkill -f "next-server" 2>/dev/null || true
     nginx -c "$REPO_ROOT/docker/nginx/nginx.local.conf" -p "$REPO_ROOT" -s quit 2>/dev/null || true
     sleep 1
     pkill -9 nginx 2>/dev/null || true
@@ -72,25 +79,47 @@ trap cleanup_on_failure INT TERM
 
 mkdir -p logs
 
-echo "Starting LangGraph server..."
-nohup sh -c 'cd backend && NO_COLOR=1 uv run langgraph dev --no-browser --allow-blocking --no-reload > ../logs/langgraph.log 2>&1' &
-./scripts/wait-for-port.sh 2024 60 "LangGraph" || {
-    echo "✗ LangGraph failed to start. Last log output:"
-    tail -60 logs/langgraph.log
-    if grep -qE "config_version|outdated|Environment variable .* not found|KeyError|ValidationError|config\.yaml" logs/langgraph.log 2>/dev/null; then
-        echo ""
-        echo "  Hint: This may be a configuration issue. Try running 'make config-upgrade' to update your config.yaml."
-    fi
-    cleanup_on_failure
-    exit 1
-}
-echo "✓ LangGraph server started on localhost:2024"
+# ── Check infrastructure dependencies (PostgreSQL + Redis) ────────────────
+echo "Checking infrastructure dependencies..."
 
-echo "Starting Gateway API..."
+# Check PostgreSQL
+if command -v pg_isready >/dev/null 2>&1; then
+    PG_HOST="${CRAB_PG_HOST:-localhost}"
+    PG_PORT="${CRAB_PG_PORT:-5432}"
+    if ! pg_isready -h "$PG_HOST" -p "$PG_PORT" -q 2>/dev/null; then
+        echo "✗ PostgreSQL is not running on $PG_HOST:$PG_PORT"
+        echo "  Start it with: cd backend && docker compose -f docker-compose.dev.yml up -d"
+        cleanup_on_failure
+        exit 1
+    fi
+    echo "  ✓ PostgreSQL reachable on $PG_HOST:$PG_PORT"
+else
+    echo "  ⚠ pg_isready not found, skipping PostgreSQL check"
+fi
+
+# Check Redis
+if command -v redis-cli >/dev/null 2>&1; then
+    REDIS_HOST="${CRAB_REDIS_HOST:-localhost}"
+    REDIS_PORT="${CRAB_REDIS_PORT:-6379}"
+    if ! redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" ping >/dev/null 2>&1; then
+        echo "✗ Redis is not running on $REDIS_HOST:$REDIS_PORT"
+        echo "  Start it with: cd backend && docker compose -f docker-compose.dev.yml up -d"
+        cleanup_on_failure
+        exit 1
+    fi
+    echo "  ✓ Redis reachable on $REDIS_HOST:$REDIS_PORT"
+else
+    echo "  ⚠ redis-cli not found, skipping Redis check"
+fi
+
+echo "Starting Gateway API (with embedded Agent runtime)..."
 nohup sh -c 'cd backend && PYTHONPATH=. uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001 > ../logs/gateway.log 2>&1' &
 ./scripts/wait-for-port.sh 8001 30 "Gateway API" || {
     echo "✗ Gateway API failed to start. Last log output:"
     tail -60 logs/gateway.log
+    echo ""
+    echo "Likely configuration errors:"
+    grep -E "Failed to load configuration|Environment variable .* not found|config\.yaml.*not found" logs/gateway.log | tail -5 || true
     echo ""
     echo "  Hint: Try running 'make config-upgrade' to update your config.yaml with the latest fields."
     cleanup_on_failure
@@ -122,15 +151,13 @@ echo "✓ Nginx started on localhost:2026"
 
 echo ""
 echo "=========================================="
-echo " DeerFlow is running in daemon mode!"
+echo " Crab Harness is running in daemon mode!"
 echo "=========================================="
 echo ""
 echo " 🌐 Application: http://localhost:2026"
 echo " 📡 API Gateway: http://localhost:2026/api/*"
-echo " 🤖 LangGraph: http://localhost:2026/api/langgraph/*"
 echo ""
 echo " 📋 Logs:"
-echo " - LangGraph: logs/langgraph.log"
 echo " - Gateway: logs/gateway.log"
 echo " - Frontend: logs/frontend.log"
 echo " - Nginx: logs/nginx.log"

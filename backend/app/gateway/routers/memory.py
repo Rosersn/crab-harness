@@ -1,9 +1,14 @@
-"""Memory API router for retrieving and managing global memory data."""
+"""Memory API router for retrieving and managing per-user memory data."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from deerflow.agents.memory.updater import get_memory_data, reload_memory_data
+from app.gateway.deps import get_current_user
+from crab_platform.auth.interface import AuthenticatedUser
+from crab_platform.db import get_db
+from crab_platform.db.repos.memory_repo import MemoryRepo
+from deerflow.agents.memory.storage import create_empty_memory
 from deerflow.config.memory_config import get_memory_config
 
 router = APIRouter(prefix="/api", tags=["memory"])
@@ -76,10 +81,13 @@ class MemoryStatusResponse(BaseModel):
     "/memory",
     response_model=MemoryResponse,
     summary="Get Memory Data",
-    description="Retrieve the current global memory data including user context, history, and facts.",
+    description="Retrieve the current user memory data including user context, history, and facts.",
 )
-async def get_memory() -> MemoryResponse:
-    """Get the current global memory data.
+async def get_memory(
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MemoryResponse:
+    """Get the current user memory data.
 
     Returns:
         The current memory data with user context, history, and facts.
@@ -112,7 +120,9 @@ async def get_memory() -> MemoryResponse:
         }
         ```
     """
-    memory_data = get_memory_data()
+    memory_data = await MemoryRepo(db).load(user.user_id)
+    if memory_data is None:
+        memory_data = create_empty_memory()
     return MemoryResponse(**memory_data)
 
 
@@ -120,18 +130,23 @@ async def get_memory() -> MemoryResponse:
     "/memory/reload",
     response_model=MemoryResponse,
     summary="Reload Memory Data",
-    description="Reload memory data from the storage file, refreshing the in-memory cache.",
+    description="Reload user memory data from PostgreSQL.",
 )
-async def reload_memory() -> MemoryResponse:
-    """Reload memory data from file.
+async def reload_memory(
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MemoryResponse:
+    """Reload memory data from PostgreSQL.
 
-    This forces a reload of the memory data from the storage file,
-    useful when the file has been modified externally.
+    PostgreSQL is the source of truth in cloud mode, so reload is equivalent
+    to a fresh read from the database.
 
     Returns:
         The reloaded memory data.
     """
-    memory_data = reload_memory_data()
+    memory_data = await MemoryRepo(db).load(user.user_id)
+    if memory_data is None:
+        memory_data = create_empty_memory()
     return MemoryResponse(**memory_data)
 
 
@@ -141,7 +156,9 @@ async def reload_memory() -> MemoryResponse:
     summary="Get Memory Configuration",
     description="Retrieve the current memory system configuration.",
 )
-async def get_memory_config_endpoint() -> MemoryConfigResponse:
+async def get_memory_config_endpoint(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> MemoryConfigResponse:
     """Get the memory system configuration.
 
     Returns:
@@ -163,7 +180,7 @@ async def get_memory_config_endpoint() -> MemoryConfigResponse:
     config = get_memory_config()
     return MemoryConfigResponse(
         enabled=config.enabled,
-        storage_path=config.storage_path,
+        storage_path="postgresql:user_memories",
         debounce_seconds=config.debounce_seconds,
         max_facts=config.max_facts,
         fact_confidence_threshold=config.fact_confidence_threshold,
@@ -178,19 +195,24 @@ async def get_memory_config_endpoint() -> MemoryConfigResponse:
     summary="Get Memory Status",
     description="Retrieve both memory configuration and current data in a single request.",
 )
-async def get_memory_status() -> MemoryStatusResponse:
+async def get_memory_status(
+    user: AuthenticatedUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MemoryStatusResponse:
     """Get the memory system status including configuration and data.
 
     Returns:
         Combined memory configuration and current data.
     """
     config = get_memory_config()
-    memory_data = get_memory_data()
+    memory_data = await MemoryRepo(db).load(user.user_id)
+    if memory_data is None:
+        memory_data = create_empty_memory()
 
     return MemoryStatusResponse(
         config=MemoryConfigResponse(
             enabled=config.enabled,
-            storage_path=config.storage_path,
+            storage_path="postgresql:user_memories",
             debounce_seconds=config.debounce_seconds,
             max_facts=config.max_facts,
             fact_confidence_threshold=config.fact_confidence_threshold,

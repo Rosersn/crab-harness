@@ -68,7 +68,7 @@ export function Hero({ className }: { className?: string }) {
           <br />
           different levels of tasks that could take minutes to hours.
         </p>
-        <Link href="/workspace">
+        <Link href="/login">
           <Button className="size-lg mt-8 scale-108" size="lg">
             <span className="text-md">Get Started with 2.0</span>
             <ChevronRightIcon className="size-4" />

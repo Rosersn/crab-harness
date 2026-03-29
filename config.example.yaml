@@ -21,6 +21,18 @@ config_version: 3
 log_level: info
 
 # ============================================================================
+# Platform Layer (Environment Variables)
+# ============================================================================
+# Multi-tenant platform settings are configured via environment variables,
+# not this YAML file. See `.env.example` for the local-dev template.
+#
+# Key env vars:
+#   - CRAB_DATABASE_URL / CRAB_REDIS_URL / CRAB_JWT_SECRET
+#   - CRAB_STORAGE_BACKEND=local|bos
+#   - CRAB_BOS_ACCESS_KEY / CRAB_BOS_SECRET_KEY / CRAB_BOS_ENDPOINT / CRAB_BOS_BUCKET
+#   - E2B_API_KEY (when using the E2B sandbox provider below)
+
+# ============================================================================
 # Token Usage Tracking
 # ============================================================================
 # Track LLM token usage per model call (input/output/total tokens)
@@ -375,6 +387,27 @@ sandbox:
 #   use: deerflow.community.aio_sandbox:AioSandboxProvider
 #   provisioner_url: http://provisioner:8002
 
+# Option 4: E2B Cloud Sandbox (requires crab-platform package)
+# Executes commands in E2B cloud VMs with PG-backed lifecycle management.
+# Uploaded files are injected from the object storage backend configured via
+# CRAB_STORAGE_BACKEND / CRAB_BOS_* environment variables.
+# sandbox:
+#   use: crab_platform.sandbox:E2BSandboxProvider
+#   # Required: E2B API key (can also be set via E2B_API_KEY env var)
+#   e2b_api_key: $E2B_API_KEY
+#   # Optional: E2B API base URL (for self-hosted / BYOC deployments)
+#   # e2b_api_url: "https://api.e2b.dev"
+#   # Optional: E2B template name (default: E2B base template)
+#   # e2b_template: "base"
+#   # Optional: keepAlive timeout in seconds after release (default: 1800 = 30min)
+#   # keep_alive_seconds: 1800
+#   # Optional: actual writable roots inside the E2B VM. DeerFlow still uses
+#   # virtual /mnt/... paths in prompts/tools and maps them to these paths.
+#   # e2b_user_data_dir: /home/user/.crab/user-data
+#   # e2b_skills_dir: /home/user/.crab/skills
+#   # e2b_acp_workspace_dir: /home/user/.crab/acp-workspace
+#   # e2b_working_directory: /home/user/.crab/user-data/workspace
+
 # ============================================================================
 # Subagents Configuration
 # ============================================================================
@@ -535,70 +568,15 @@ memory:
 #
 # SQLite (file-based, single-process):
 checkpointer:
-  type: sqlite
-  connection_string: checkpoints.db
+  type: postgres
+  # Local host-run gateway uses the published Postgres port from backend/docker-compose.dev.yml.
+  # If your gateway runs inside Docker, switch host to host.docker.internal instead.
+  connection_string: postgresql://postgres:postgres@localhost:5432/crab
 #
 # PostgreSQL (multi-process, production):
 # checkpointer:
 #   type: postgres
 #   connection_string: postgresql://user:password@localhost:5432/deerflow
-
-# ============================================================================
-# IM Channels Configuration
-# ============================================================================
-# Connect DeerFlow to external messaging platforms.
-# All channels use outbound connections (WebSocket or polling) — no public IP required.
-
-# channels:
-#   # LangGraph Server URL for thread/message management (default: http://localhost:2024)
-#   # For Docker deployments, use the Docker service name instead of localhost:
-#   #   langgraph_url: http://langgraph:2024
-#   #   gateway_url: http://gateway:8001
-#   langgraph_url: http://localhost:2024
-#   # Gateway API URL for auxiliary queries like /models, /memory (default: http://localhost:8001)
-#   gateway_url: http://localhost:8001
-#
-#   # Optional: default mobile/session settings for all IM channels
-#   session:
-#     assistant_id: lead_agent
-#     config:
-#       recursion_limit: 100
-#     context:
-#       thinking_enabled: true
-#       is_plan_mode: false
-#       subagent_enabled: false
-#
-#   feishu:
-#     enabled: false
-#     app_id: $FEISHU_APP_ID
-#     app_secret: $FEISHU_APP_SECRET
-#
-#   slack:
-#     enabled: false
-#     bot_token: $SLACK_BOT_TOKEN     # xoxb-...
-#     app_token: $SLACK_APP_TOKEN     # xapp-... (Socket Mode)
-#     allowed_users: []               # empty = allow all
-#
-#   telegram:
-#     enabled: false
-#     bot_token: $TELEGRAM_BOT_TOKEN
-#     allowed_users: []               # empty = allow all
-#
-#     # Optional: channel-level session overrides
-#     session:
-#       assistant_id: mobile_agent
-#       context:
-#         thinking_enabled: false
-#
-#       # Optional: per-user overrides by user_id
-#       users:
-#         "123456789":
-#           assistant_id: vip_agent
-#           config:
-#             recursion_limit: 150
-#           context:
-#             thinking_enabled: true
-#             subagent_enabled: true
 
 # ============================================================================
 # Guardrails Configuration

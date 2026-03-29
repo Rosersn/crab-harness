@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy.sh - Build and start (or stop) DeerFlow production services
+# deploy.sh - Build and start (or stop) Crab Harness production services
 #
 # Usage:
 #   deploy.sh [up]   — build images and start containers (default)
@@ -153,7 +153,7 @@ fi
 # ── Banner ────────────────────────────────────────────────────────────────────
 
 echo "=========================================="
-echo "  DeerFlow Production Deployment"
+echo "  Crab Harness Production Deployment"
 echo "=========================================="
 echo ""
 
@@ -166,7 +166,7 @@ if [ "$sandbox_mode" = "provisioner" ]; then
     services=""
     extra_args="--profile provisioner"
 else
-    services="frontend gateway langgraph nginx"
+    services="frontend gateway nginx"
     extra_args=""
 fi
 
@@ -199,12 +199,11 @@ echo ""
 
 echo ""
 echo "=========================================="
-echo "  DeerFlow is running!"
+echo "  Crab Harness is running!"
 echo "=========================================="
 echo ""
 echo "  🌐 Application: http://localhost:${PORT:-2026}"
 echo "  📡 API Gateway: http://localhost:${PORT:-2026}/api/*"
-echo "  🤖 LangGraph:   http://localhost:${PORT:-2026}/api/langgraph/*"
 echo ""
 echo "  Manage:"
 echo "    make down        — stop and remove containers"

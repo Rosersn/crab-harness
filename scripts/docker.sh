@@ -87,7 +87,7 @@ docker_available() {
 # Initialize: pre-pull the sandbox image so first Pod startup is fast
 init() {
     echo "=========================================="
-    echo "  DeerFlow Init — Pull Sandbox Image"
+    echo "  Crab Harness Init — Pull Sandbox Image"
     echo "=========================================="
     echo ""
 
@@ -153,16 +153,16 @@ start() {
     local services
 
     echo "=========================================="
-    echo "  Starting DeerFlow Docker Development"
+    echo "  Starting Crab Harness Docker Development"
     echo "=========================================="
     echo ""
 
     sandbox_mode="$(detect_sandbox_mode)"
 
     if [ "$sandbox_mode" = "provisioner" ]; then
-        services="frontend gateway langgraph provisioner nginx"
+        services="frontend gateway provisioner nginx"
     else
-        services="frontend gateway langgraph nginx"
+        services="frontend gateway nginx"
     fi
 
     echo -e "${BLUE}Detected sandbox mode: $sandbox_mode${NC}"
@@ -188,7 +188,7 @@ start() {
             echo -e "${YELLOW}============================================================${NC}"
             echo -e "${YELLOW}  config.yaml has been created from config.example.yaml.${NC}"
             echo -e "${YELLOW}  Please edit config.yaml to set your API keys and model   ${NC}"
-            echo -e "${YELLOW}  configuration before starting DeerFlow.                  ${NC}"
+            echo -e "${YELLOW}  configuration before starting Crab Harness.              ${NC}"
             echo -e "${YELLOW}============================================================${NC}"
             echo ""
             echo -e "${YELLOW}  Edit the file:  $PROJECT_ROOT/config.yaml${NC}"
@@ -217,12 +217,11 @@ start() {
     cd "$DOCKER_DIR" && $COMPOSE_CMD up --build -d --remove-orphans $services
     echo ""
     echo "=========================================="
-    echo "  DeerFlow Docker is starting!"
+    echo "  Crab Harness Docker is starting!"
     echo "=========================================="
     echo ""
     echo "  🌐 Application: http://localhost:2026"
     echo "  📡 API Gateway: http://localhost:2026/api/*"
-    echo "  🤖 LangGraph:   http://localhost:2026/api/langgraph/*"
     echo ""
     echo "  📋 View logs: make docker-logs"
     echo "  🛑 Stop:      make docker-stop"
@@ -280,7 +279,7 @@ stop() {
 # Restart Docker development environment
 restart() {
     echo "========================================"
-    echo "  Restarting DeerFlow Docker Services"
+    echo "  Restarting Crab Harness Docker Services"
     echo "========================================"
     echo ""
     echo -e "${BLUE}Restarting containers...${NC}"
@@ -295,7 +294,7 @@ restart() {
 
 # Show help
 help() {
-    echo "DeerFlow Docker Management Script"
+    echo "Crab Harness Docker Management Script"
     echo ""
     echo "Usage: $0 <command> [options]"
     echo ""

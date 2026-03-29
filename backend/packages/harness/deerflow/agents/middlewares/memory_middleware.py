@@ -147,6 +147,14 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
 
         # Queue the filtered conversation for memory update
         queue = get_memory_queue()
-        queue.add(thread_id=thread_id, messages=filtered_messages, agent_name=self._agent_name)
+        user_id = runtime.context.get("user_id") if runtime.context else None
+        tenant_id = runtime.context.get("tenant_id") if runtime.context else None
+        queue.add(
+            thread_id=thread_id,
+            messages=filtered_messages,
+            agent_name=self._agent_name,
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
 
         return None

@@ -1,9 +1,15 @@
 import { getBackendBaseURL } from "../config";
+import { fetchJson } from "../http/fetch";
 
 import type { Model } from "./types";
 
 export async function loadModels() {
-  const res = await fetch(`${getBackendBaseURL()}/api/models`);
-  const { models } = (await res.json()) as { models: Model[] };
+  const { models } = await fetchJson<{ models: Model[] }>(
+    `${getBackendBaseURL()}/api/models`,
+    undefined,
+    {
+      fallbackMessage: "Failed to load models",
+    },
+  );
   return models;
 }

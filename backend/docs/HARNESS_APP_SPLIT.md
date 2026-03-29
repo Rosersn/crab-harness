@@ -1,18 +1,20 @@
-# DeerFlow 后端拆分设计文档：Harness + App
+# Crab Harness 后端拆分设计文档：Harness + Platform + App
 
-> 状态：Draft
-> 作者：DeerFlow Team
-> 日期：2026-03-13
+> 状态：Implemented (evolved from original Harness/App split)
+> 作者：Crab Harness Team
+> 日期：2026-03-13 (初版) / 2026-03-29 (更新)
 
 ## 1. 背景与动机
 
 DeerFlow 后端当前是一个单一 Python 包（`src.*`），包含了从底层 agent 编排到上层用户产品的所有代码。随着项目发展，这种结构带来了几个问题：
 
-- **复用困难**：其他产品（CLI 工具、Slack bot、第三方集成）想用 agent 能力，必须依赖整个后端，包括 FastAPI、IM SDK 等不需要的依赖
+- **复用困难**：其他产品（CLI 工具、第三方集成）想用 agent 能力，必须依赖整个后端，包括 FastAPI 等不需要的依赖
 - **职责模糊**：agent 编排逻辑和用户产品逻辑混在同一个 `src/` 下，边界不清晰
-- **依赖膨胀**：LangGraph Server 运行时不需要 FastAPI/uvicorn/Slack SDK，但当前必须安装全部依赖
+- **依赖膨胀**：Gateway 运行时不需要所有 harness 依赖，反之亦然
 
-本文档提出将后端拆分为两部分：**deerflow-harness**（可发布的 agent 框架包）和 **app**（不打包的用户产品代码）。
+本文档提出将后端拆分为三部分：**deerflow-harness**（可发布的 agent 框架包）、**crab-platform**（多租户编排层）和 **app**（不打包的用户产品代码）。
+
+> **注意**：IM Channels（飞书/Slack/Telegram）已在云端化改造中移除，不再是 App 层的组成部分。
 
 ## 2. 核心概念
 
@@ -38,12 +40,11 @@ Harness 是 agent 的构建与编排框架，回答 **"如何构建和运行 age
 
 App 是面向用户的产品代码，回答 **"如何将 agent 呈现给用户"** 的问题：
 
-- Gateway API（FastAPI REST 接口）
-- IM Channels（飞书、Slack、Telegram 集成）
+- Gateway API（FastAPI REST 接口，含 JWT 认证和 LangGraph SDK 兼容端点）
 - Custom Agent 的 CRUD 管理
 - 文件上传/下载的 HTTP 接口
 
-**App 不打包、不发布**，它是 DeerFlow 项目内部的应用代码，直接运行。
+**App 不打包、不发布**，它是项目内部的应用代码，直接运行。
 
 **App 依赖 Harness，但 Harness 不依赖 App。**
 
@@ -64,7 +65,6 @@ App 是面向用户的产品代码，回答 **"如何将 agent 呈现给用户"*
 | `community/` | Harness | 社区工具（tavily、jina 等） |
 | `client.py` | Harness | 嵌入式 Python 客户端 |
 | `gateway/` | App | FastAPI REST API |
-| `channels/` | App | IM 平台集成 |
 
 **关于 Custom Agents**：agent 定义格式（`config.yaml` + `SOUL.md` schema）由 Harness 层的 `config/agents_config.py` 定义，但文件的存储、CRUD、发现机制由 App 层的 `gateway/routers/agents.py` 负责。
 
@@ -98,24 +98,13 @@ backend/
 │           └── client.py
 ├── app/                            # 不打包（import 前缀: app.*）
 │   ├── __init__.py
-│   ├── gateway/
-│   │   ├── __init__.py
-│   │   ├── app.py
-│   │   ├── config.py
-│   │   ├── path_utils.py
-│   │   └── routers/
-│   └── channels/
+│   └── gateway/
 │       ├── __init__.py
-│       ├── base.py
-│       ├── manager.py
-│       ├── service.py
-│       ├── store.py
-│       ├── message_bus.py
-│       ├── feishu.py
-│       ├── slack.py
-│       └── telegram.py
+│       ├── app.py
+│       ├── deps.py
+│       ├── middleware.py
+│       └── routers/
 ├── pyproject.toml                  # uv workspace root
-├── langgraph.json
 ├── tests/
 ├── docs/
 └── Makefile
@@ -138,8 +127,7 @@ from deerflow.tools import get_available_tools
 # App 内部互相引用（app.* 前缀）
 # ---------------------------------------------------------------
 from app.gateway.app import app
-from app.gateway.routers.uploads import upload_files
-from app.channels.service import start_channel_service
+from app.gateway.deps import get_current_user
 
 # ---------------------------------------------------------------
 # App 调用 Harness（单向依赖，Harness 永远不 import app）
@@ -165,20 +153,7 @@ async def create_chat_session(thread_id: str, model_name: str):
     # ... 使用 agent 处理用户消息
 ```
 
-**App 调用 Harness 示例 — Channel 中查询 skills**：
-
-```python
-# app/channels/manager.py
-from deerflow.skills import load_skills
-from deerflow.agents.memory.updater import get_memory_data
-
-def handle_status_command():
-    skills = load_skills(enabled_only=True)
-    memory = get_memory_data()
-    return f"Skills: {len(skills)}, Memory facts: {len(memory.get('facts', []))}"
-```
-
-**禁止方向**：Harness 代码中绝不能出现 `from app.` 或 `import app.`。
+**禁止方向**：Harness 代码中绝不能出现 `from app.` 或 `import app.`。Platform 代码中绝不能出现 `from app.` 或 `import app.`。
 
 ### 3.3 为什么 App 不打包
 
@@ -189,7 +164,7 @@ def handle_status_command():
 | 复杂度 | 需要管理两个包的构建、版本、依赖声明 | 直接运行，零额外配置 |
 | 运行方式 | `pip install deerflow-app` | `PYTHONPATH=. uvicorn app.gateway.app:app` |
 
-App 的唯一消费者是 DeerFlow 项目自身，没有独立发布的需求。放在 `backend/app/` 下作为普通 Python 包，通过 `PYTHONPATH` 或 editable install 让 Python 找到即可。
+App 的唯一消费者是 Crab Harness 项目自身，没有独立发布的需求。放在 `backend/app/` 下作为普通 Python 包，通过 `PYTHONPATH` 或 editable install 让 Python 找到即可。
 
 ### 3.4 依赖关系
 
@@ -197,7 +172,14 @@ App 的唯一消费者是 DeerFlow 项目自身，没有独立发布的需求。
 ┌─────────────────────────────────────┐
 │  app/  (不打包，直接运行)             │
 │  ├── fastapi, uvicorn               │
-│  ├── slack-sdk, lark-oapi, ...      │
+│  └── import crab_platform.*, deerflow.* │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  crab-platform  (多租户编排层)        │
+│  ├── sqlalchemy, asyncpg, pyjwt     │
+│  ├── redis, bcrypt                  │
 │  └── import deerflow.*              │
 └──────────────┬──────────────────────┘
                │
@@ -206,7 +188,7 @@ App 的唯一消费者是 DeerFlow 项目自身，没有独立发布的需求。
 │  deerflow-harness  (可发布的包)       │
 │  ├── langgraph, langchain           │
 │  ├── markitdown, pydantic, ...      │
-│  └── 零 app 依赖                     │
+│  └── 零 app/platform 依赖           │
 └─────────────────────────────────────┘
 ```
 
@@ -215,8 +197,8 @@ App 的唯一消费者是 DeerFlow 项目自身，没有独立发布的需求。
 | 分类 | 依赖包 |
 |------|--------|
 | Harness only | agent-sandbox, langchain*, langgraph*, markdownify, markitdown, pydantic, pyyaml, readabilipy, tavily-python, firecrawl-py, tiktoken, ddgs, duckdb, httpx, kubernetes, dotenv |
-| App only | fastapi, uvicorn, sse-starlette, python-multipart, lark-oapi, slack-sdk, python-telegram-bot, markdown-to-mrkdwn |
-| Shared | langgraph-sdk（channels 用 HTTP client）, pydantic, httpx |
+| Platform only | sqlalchemy[asyncio], asyncpg, pyjwt[crypto], bcrypt, redis[hiredis], pydantic-settings |
+| App only | fastapi, uvicorn, sse-starlette, python-multipart |
 
 ### 3.5 Workspace 配置
 
@@ -224,22 +206,22 @@ App 的唯一消费者是 DeerFlow 项目自身，没有独立发布的需求。
 
 ```toml
 [project]
-name = "deer-flow"
+name = "crab-harness"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["deerflow-harness"]
+dependencies = ["deerflow-harness", "crab-platform"]
 
 [dependency-groups]
 dev = ["pytest>=8.0.0", "ruff>=0.14.11"]
 # App 的额外依赖（fastapi 等）也声明在 workspace root，因为 app 不打包
 app = ["fastapi", "uvicorn", "sse-starlette", "python-multipart"]
-channels = ["lark-oapi", "slack-sdk", "python-telegram-bot"]
 
 [tool.uv.workspace]
-members = ["packages/harness"]
+members = ["packages/harness", "packages/platform"]
 
 [tool.uv.sources]
 deerflow-harness = { workspace = true }
+crab-platform = { workspace = true }
 ```
 
 ## 4. 当前的跨层依赖问题
@@ -266,21 +248,9 @@ from src.gateway.routers.uploads import CONVERTIBLE_EXTENSIONS, convert_file_to_
 
 ## 5. 基础设施变更
 
-### 5.1 LangGraph Server
+### 5.1 Gateway API (含嵌入式 Agent 运行时)
 
-LangGraph Server 只需要 harness 包。`langgraph.json` 更新：
-
-```json
-{
-  "dependencies": ["./packages/harness"],
-  "graphs": {
-    "lead_agent": "deerflow.agents:make_lead_agent"
-  },
-  "checkpointer": {
-    "path": "./packages/harness/deerflow/agents/checkpointer/async_provider.py:make_checkpointer"
-  }
-}
-```
+LangGraph 仅作为库使用（不再有独立的 LangGraph Server）。Gateway 直接调用 `create_agent()` + `agent.astream()`。
 
 ### 5.2 Gateway API
 

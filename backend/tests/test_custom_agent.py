@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+
+from app.gateway.deps import get_current_user
+from crab_platform.auth.interface import AuthenticatedUser
+
+_FAKE_USER = AuthenticatedUser(
+    user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), email="test@example.com", role="member",
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -351,147 +359,59 @@ class TestMemoryFilePath:
 # ===========================================================================
 
 
-def _make_test_app(tmp_path: Path):
-    """Create a FastAPI app with the agents router, patching paths to tmp_path."""
+def _make_test_app():
+    """Create a FastAPI app with the agents router."""
     from fastapi import FastAPI
 
     from app.gateway.routers.agents import router
 
     app = FastAPI()
     app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
     return app
 
 
 @pytest.fixture()
-def agent_client(tmp_path):
-    """TestClient with agents router, using tmp_path as base_dir."""
-    paths_instance = _make_paths(tmp_path)
-
-    with patch("deerflow.config.agents_config.get_paths", return_value=paths_instance), patch("app.gateway.routers.agents.get_paths", return_value=paths_instance):
-        app = _make_test_app(tmp_path)
-        with TestClient(app) as client:
-            client._tmp_path = tmp_path  # type: ignore[attr-defined]
-            yield client
+def agent_client():
+    """TestClient with agents router."""
+    app = _make_test_app()
+    with TestClient(app) as client:
+        yield client
 
 
 class TestAgentsAPI:
-    def test_list_agents_empty(self, agent_client):
-        response = agent_client.get("/api/agents")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["agents"] == []
-
-    def test_create_agent(self, agent_client):
-        payload = {
-            "name": "code-reviewer",
-            "description": "Reviews code",
-            "soul": "You are a code reviewer.",
-        }
-        response = agent_client.post("/api/agents", json=payload)
-        assert response.status_code == 201
-        data = response.json()
-        assert data["name"] == "code-reviewer"
-        assert data["description"] == "Reviews code"
-        assert data["soul"] == "You are a code reviewer."
-
-    def test_create_agent_invalid_name(self, agent_client):
-        payload = {"name": "Code Reviewer!", "soul": "test"}
-        response = agent_client.post("/api/agents", json=payload)
-        assert response.status_code == 422
-
-    def test_create_duplicate_agent_409(self, agent_client):
-        payload = {"name": "my-agent", "soul": "test"}
-        agent_client.post("/api/agents", json=payload)
-
-        # Second create should fail
-        response = agent_client.post("/api/agents", json=payload)
-        assert response.status_code == 409
-
-    def test_list_agents_after_create(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "agent-one", "soul": "p1"})
-        agent_client.post("/api/agents", json={"name": "agent-two", "soul": "p2"})
-
-        response = agent_client.get("/api/agents")
-        assert response.status_code == 200
-        names = [a["name"] for a in response.json()["agents"]]
-        assert "agent-one" in names
-        assert "agent-two" in names
-
-    def test_get_agent(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "test-agent", "soul": "Hello world"})
-
-        response = agent_client.get("/api/agents/test-agent")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["name"] == "test-agent"
-        assert data["soul"] == "Hello world"
-
-    def test_get_missing_agent_404(self, agent_client):
-        response = agent_client.get("/api/agents/nonexistent")
-        assert response.status_code == 404
-
-    def test_update_agent_soul(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "update-me", "soul": "original"})
-
-        response = agent_client.put("/api/agents/update-me", json={"soul": "updated"})
-        assert response.status_code == 200
-        assert response.json()["soul"] == "updated"
-
-    def test_update_agent_description(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "desc-agent", "description": "old desc", "soul": "p"})
-
-        response = agent_client.put("/api/agents/desc-agent", json={"description": "new desc"})
-        assert response.status_code == 200
-        assert response.json()["description"] == "new desc"
-
-    def test_update_missing_agent_404(self, agent_client):
-        response = agent_client.put("/api/agents/ghost-agent", json={"soul": "new"})
-        assert response.status_code == 404
-
-    def test_delete_agent(self, agent_client):
-        agent_client.post("/api/agents", json={"name": "del-me", "soul": "bye"})
-
-        response = agent_client.delete("/api/agents/del-me")
-        assert response.status_code == 204
-
-        # Verify it's gone
-        response = agent_client.get("/api/agents/del-me")
-        assert response.status_code == 404
-
-    def test_delete_missing_agent_404(self, agent_client):
-        response = agent_client.delete("/api/agents/does-not-exist")
-        assert response.status_code == 404
-
-    def test_create_agent_with_model_and_tool_groups(self, agent_client):
-        payload = {
-            "name": "specialized",
-            "description": "Specialized agent",
-            "model": "deepseek-v3",
-            "tool_groups": ["file:read", "bash"],
-            "soul": "You are specialized.",
-        }
-        response = agent_client.post("/api/agents", json=payload)
-        assert response.status_code == 201
-        data = response.json()
-        assert data["model"] == "deepseek-v3"
-        assert data["tool_groups"] == ["file:read", "bash"]
-
-    def test_create_persists_files_on_disk(self, agent_client, tmp_path):
-        agent_client.post("/api/agents", json={"name": "disk-check", "soul": "disk soul"})
-
-        agent_dir = tmp_path / "agents" / "disk-check"
-        assert agent_dir.exists()
-        assert (agent_dir / "config.yaml").exists()
-        assert (agent_dir / "SOUL.md").exists()
-        assert (agent_dir / "SOUL.md").read_text() == "disk soul"
-
-    def test_delete_removes_files_from_disk(self, agent_client, tmp_path):
-        agent_client.post("/api/agents", json={"name": "remove-me", "soul": "bye"})
-        agent_dir = tmp_path / "agents" / "remove-me"
-        assert agent_dir.exists()
-
-        agent_client.delete("/api/agents/remove-me")
-        assert not agent_dir.exists()
+    @pytest.mark.parametrize(
+        ("method", "path", "payload"),
+        [
+            ("get", "/api/agents", None),
+            ("get", "/api/agents/check?name=test-agent", None),
+            ("get", "/api/agents/test-agent", None),
+            (
+                "post",
+                "/api/agents",
+                {
+                    "name": "code-reviewer",
+                    "description": "Reviews code",
+                    "soul": "You are a code reviewer.",
+                },
+            ),
+            ("put", "/api/agents/test-agent", {"soul": "updated"}),
+            ("delete", "/api/agents/test-agent", None),
+        ],
+    )
+    def test_cloud_mode_disables_custom_agent_endpoints(
+        self,
+        agent_client,
+        method: str,
+        path: str,
+        payload: dict | None,
+    ):
+        if payload is None:
+            response = getattr(agent_client, method)(path)
+        else:
+            response = getattr(agent_client, method)(path, json=payload)
+        assert response.status_code == 410
+        assert "not supported in cloud mode" in response.json()["detail"]
 
 
 # ===========================================================================
@@ -500,31 +420,23 @@ class TestAgentsAPI:
 
 
 class TestUserProfileAPI:
-    def test_get_user_profile_empty(self, agent_client):
-        response = agent_client.get("/api/user-profile")
-        assert response.status_code == 200
-        assert response.json()["content"] is None
-
-    def test_put_user_profile(self, agent_client, tmp_path):
-        content = "# User Profile\n\nI am a developer."
-        response = agent_client.put("/api/user-profile", json={"content": content})
-        assert response.status_code == 200
-        assert response.json()["content"] == content
-
-        # File should be written to disk
-        user_md = tmp_path / "USER.md"
-        assert user_md.exists()
-        assert user_md.read_text(encoding="utf-8") == content
-
-    def test_get_user_profile_after_put(self, agent_client):
-        content = "# Profile\n\nI work on data science."
-        agent_client.put("/api/user-profile", json={"content": content})
-
-        response = agent_client.get("/api/user-profile")
-        assert response.status_code == 200
-        assert response.json()["content"] == content
-
-    def test_put_empty_user_profile_returns_none(self, agent_client):
-        response = agent_client.put("/api/user-profile", json={"content": ""})
-        assert response.status_code == 200
-        assert response.json()["content"] is None
+    @pytest.mark.parametrize(
+        ("method", "path", "payload"),
+        [
+            ("get", "/api/user-profile", None),
+            ("put", "/api/user-profile", {"content": "# User Profile\n\nI am a developer."}),
+        ],
+    )
+    def test_cloud_mode_disables_user_profile_endpoints(
+        self,
+        agent_client,
+        method: str,
+        path: str,
+        payload: dict | None,
+    ):
+        if payload is None:
+            response = getattr(agent_client, method)(path)
+        else:
+            response = getattr(agent_client, method)(path, json=payload)
+        assert response.status_code == 410
+        assert "not supported in cloud mode" in response.json()["detail"]

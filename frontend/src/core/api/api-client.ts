@@ -3,12 +3,16 @@
 import { Client as LangGraphClient } from "@langchain/langgraph-sdk/client";
 
 import { getLangGraphBaseURL } from "../config";
+import { fetchWithAuth } from "../http/fetch";
 
 import { sanitizeRunStreamOptions } from "./stream-mode";
 
 function createCompatibleClient(isMock?: boolean): LangGraphClient {
   const client = new LangGraphClient({
     apiUrl: getLangGraphBaseURL(isMock),
+    callerOptions: {
+      fetch: fetchWithAuth,
+    },
   });
 
   const originalRunStream = client.runs.stream.bind(client.runs);

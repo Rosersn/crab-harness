@@ -246,12 +246,12 @@ class TestUpdateMemoryStructuredResponse:
     def test_string_response_parses(self):
         updater = MemoryUpdater()
         valid_json = '{"user": {}, "history": {}, "newFacts": [], "factsToRemove": []}'
+        mock_storage = MagicMock(load=MagicMock(return_value=_make_memory()), save=MagicMock(return_value=True))
 
         with (
             patch.object(updater, "_get_model", return_value=self._make_mock_model(valid_json)),
             patch("deerflow.agents.memory.updater.get_memory_config", return_value=_memory_config(enabled=True)),
-            patch("deerflow.agents.memory.updater.get_memory_data", return_value=_make_memory()),
-            patch("deerflow.agents.memory.updater.get_memory_storage", return_value=MagicMock(save=MagicMock(return_value=True))),
+            patch.object(MemoryUpdater, "_resolve_storage", return_value=mock_storage),
         ):
             msg = MagicMock()
             msg.type = "human"
@@ -269,12 +269,12 @@ class TestUpdateMemoryStructuredResponse:
         updater = MemoryUpdater()
         valid_json = '{"user": {}, "history": {}, "newFacts": [], "factsToRemove": []}'
         list_content = [{"type": "text", "text": valid_json}]
+        mock_storage = MagicMock(load=MagicMock(return_value=_make_memory()), save=MagicMock(return_value=True))
 
         with (
             patch.object(updater, "_get_model", return_value=self._make_mock_model(list_content)),
             patch("deerflow.agents.memory.updater.get_memory_config", return_value=_memory_config(enabled=True)),
-            patch("deerflow.agents.memory.updater.get_memory_data", return_value=_make_memory()),
-            patch("deerflow.agents.memory.updater.get_memory_storage", return_value=MagicMock(save=MagicMock(return_value=True))),
+            patch.object(MemoryUpdater, "_resolve_storage", return_value=mock_storage),
         ):
             msg = MagicMock()
             msg.type = "human"

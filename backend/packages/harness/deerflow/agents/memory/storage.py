@@ -4,7 +4,7 @@ import abc
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +19,7 @@ def create_empty_memory() -> dict[str, Any]:
     """Create an empty memory structure."""
     return {
         "version": "1.0",
-        "lastUpdated": datetime.utcnow().isoformat() + "Z",
+        "lastUpdated": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "user": {
             "workContext": {"summary": "", "updatedAt": ""},
             "personalContext": {"summary": "", "updatedAt": ""},

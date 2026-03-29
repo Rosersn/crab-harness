@@ -1,0 +1,352 @@
+"""Phase 2 tests: ObjectStorage, PGMemoryStorage, MCP/Skills per-user routers."""
+
+import asyncio
+import uuid
+from io import BytesIO
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+# ---------------------------------------------------------------------------
+# ObjectStorage (LocalObjectStorage)
+# ---------------------------------------------------------------------------
+
+
+class TestLocalObjectStorage:
+    """Tests for the local filesystem ObjectStorage implementation."""
+
+    def _make_storage(self, tmp_path):
+        from crab_platform.storage.local import LocalObjectStorage
+
+        return LocalObjectStorage(root_dir=tmp_path)
+
+    def test_put_and_get(self, tmp_path):
+        storage = self._make_storage(tmp_path)
+        asyncio.run(storage.put("a/b/file.txt", b"hello"))
+        data = asyncio.run(storage.get("a/b/file.txt"))
+        assert data == b"hello"
+
+    def test_put_binary_io(self, tmp_path):
+        storage = self._make_storage(tmp_path)
+        asyncio.run(storage.put("data.bin", BytesIO(b"binary")))
+        assert asyncio.run(storage.get("data.bin")) == b"binary"
+
+    def test_get_missing_raises(self, tmp_path):
+        storage = self._make_storage(tmp_path)
+        with pytest.raises(FileNotFoundError):
+            asyncio.run(storage.get("no/such/key"))
+
+    def test_delete(self, tmp_path):
+        storage = self._make_storage(tmp_path)
+        asyncio.run(storage.put("to-delete.txt", b"bye"))
+        asyncio.run(storage.delete("to-delete.txt"))
+        with pytest.raises(FileNotFoundError):
+            asyncio.run(storage.get("to-delete.txt"))
+
+    def test_delete_missing_no_error(self, tmp_path):
+        storage = self._make_storage(tmp_path)
+        asyncio.run(storage.delete("nonexistent"))  # should not raise
+
+    def test_exists(self, tmp_path):
+        storage = self._make_storage(tmp_path)
+        assert asyncio.run(storage.exists("x.txt")) is False
+        asyncio.run(storage.put("x.txt", b"x"))
+        assert asyncio.run(storage.exists("x.txt")) is True
+
+    def test_list_keys(self, tmp_path):
+        storage = self._make_storage(tmp_path)
+        asyncio.run(storage.put("prefix/a.txt", b"a"))
+        asyncio.run(storage.put("prefix/b.txt", b"b"))
+        asyncio.run(storage.put("other/c.txt", b"c"))
+        keys = asyncio.run(storage.list_keys("prefix"))
+        assert "prefix/a.txt" in keys
+        assert "prefix/b.txt" in keys
+        assert "other/c.txt" not in keys
+
+    def test_presigned_url_returns_path(self, tmp_path):
+        storage = self._make_storage(tmp_path)
+        url = asyncio.run(storage.generate_presigned_url("my/key.txt"))
+        assert "my/key.txt" in url
+
+    def test_traversal_rejected(self, tmp_path):
+        storage = self._make_storage(tmp_path)
+        with pytest.raises(ValueError, match="traversal"):
+            asyncio.run(storage.put("../../etc/passwd", b"bad"))
+
+
+# ---------------------------------------------------------------------------
+# PGMemoryStorage
+# ---------------------------------------------------------------------------
+
+
+class TestPGMemoryStorage:
+    """Tests for the PostgreSQL-backed MemoryStorage implementation."""
+
+    def _make_storage(self, load_return=None, save_return=None):
+        from crab_platform.storage.pg_memory import PGMemoryStorage
+
+        db = AsyncMock()
+        user_id = uuid.uuid4()
+        tenant_id = uuid.uuid4()
+        storage = PGMemoryStorage(db, user_id, tenant_id)
+
+        # Mock the repo methods
+        storage._repo.load = AsyncMock(return_value=load_return)
+        storage._repo.save = AsyncMock(return_value=save_return or MagicMock())
+
+        return storage
+
+    def test_load_returns_empty_on_first_call(self):
+        storage = self._make_storage(load_return=None)
+        data = storage.reload()
+        assert data["version"] == "1.0"
+        assert data["facts"] == []
+
+    def test_load_returns_cached(self):
+        memory = {"version": "1.0", "facts": [{"id": "f1"}]}
+        storage = self._make_storage(load_return=memory)
+        # First call populates cache
+        data1 = storage.reload()
+        assert data1 == memory
+        # Second call returns cached
+        data2 = storage.load()
+        assert data2 == memory
+        # repo.load only called once (by reload)
+        assert storage._repo.load.call_count == 1
+
+    def test_reload_always_fetches(self):
+        storage = self._make_storage(load_return={"version": "1.0", "facts": []})
+        storage.reload()
+        storage.reload()
+        assert storage._repo.load.call_count == 2
+
+    def test_save_updates_cache(self):
+        storage = self._make_storage()
+        new_data = {"version": "1.0", "facts": [{"id": "new"}]}
+        result = storage.save(new_data)
+        assert result is True
+        # Cache is updated
+        assert storage.load() == new_data
+        storage._repo.save.assert_called_once()
+
+    def test_save_returns_false_on_error(self):
+        storage = self._make_storage()
+        storage._repo.save = AsyncMock(side_effect=RuntimeError("db error"))
+        result = storage.save({"version": "1.0", "facts": []})
+        assert result is False
+
+    def test_load_with_agent_name(self):
+        agent_memory = {"version": "1.0", "facts": [{"id": "agent-fact"}]}
+        storage = self._make_storage(load_return=agent_memory)
+        data = storage.reload(agent_name="researcher")
+        assert data == agent_memory
+
+    def test_implements_memory_storage_abc(self):
+        from deerflow.agents.memory.storage import MemoryStorage
+        from crab_platform.storage.pg_memory import PGMemoryStorage
+
+        assert issubclass(PGMemoryStorage, MemoryStorage)
+
+
+# ---------------------------------------------------------------------------
+# MCP Router (per-user CRUD)
+# ---------------------------------------------------------------------------
+
+
+class TestMcpRouter:
+    """Tests for MCP per-user CRUD endpoints."""
+
+    def _fake_user(self):
+        user = MagicMock()
+        user.user_id = uuid.uuid4()
+        user.tenant_id = uuid.uuid4()
+        user.email = "test@example.com"
+        user.role = "member"
+        return user
+
+    def test_upsert_mcp_server_rejects_stdio(self):
+        from app.gateway.routers.mcp import UserMcpServerRequest, upsert_user_mcp_server
+
+        user = self._fake_user()
+        db = AsyncMock()
+        db.commit = AsyncMock()
+
+        # McpConfigRepo.upsert raises ValueError for stdio
+        repo_mock = MagicMock()
+        repo_mock.upsert = AsyncMock(side_effect=ValueError("Only 'http' and 'sse' transports are allowed, got: stdio"))
+
+        request = UserMcpServerRequest(enabled=True, transport_type="stdio", config={})
+
+        with patch("app.gateway.routers.mcp.McpConfigRepo", return_value=repo_mock):
+            try:
+                asyncio.run(upsert_user_mcp_server("bad-server", request, user=user, db=db))
+                assert False, "Expected HTTPException"
+            except Exception as e:
+                assert hasattr(e, "status_code") and e.status_code == 400
+                assert "stdio" in str(e.detail)
+
+    def test_upsert_mcp_server_success(self):
+        from app.gateway.routers.mcp import UserMcpServerRequest, upsert_user_mcp_server
+
+        user = self._fake_user()
+        db = AsyncMock()
+        db.commit = AsyncMock()
+
+        record = MagicMock()
+        record.server_name = "my-server"
+        record.enabled = True
+        record.transport_type = "http"
+        record.config = {"url": "https://example.com"}
+
+        repo_mock = MagicMock()
+        repo_mock.upsert = AsyncMock(return_value=record)
+
+        request = UserMcpServerRequest(enabled=True, transport_type="http", config={"url": "https://example.com"})
+
+        with patch("app.gateway.routers.mcp.McpConfigRepo", return_value=repo_mock):
+            result = asyncio.run(upsert_user_mcp_server("my-server", request, user=user, db=db))
+
+        assert result.server_name == "my-server"
+        assert result.transport_type == "http"
+        db.commit.assert_called_once()
+
+    def test_delete_mcp_server_not_found(self):
+        from app.gateway.routers.mcp import delete_user_mcp_server
+
+        user = self._fake_user()
+        db = AsyncMock()
+
+        repo_mock = MagicMock()
+        repo_mock.delete = AsyncMock(return_value=False)
+
+        with patch("app.gateway.routers.mcp.McpConfigRepo", return_value=repo_mock):
+            try:
+                asyncio.run(delete_user_mcp_server("nonexistent", user=user, db=db))
+                assert False, "Expected HTTPException"
+            except Exception as e:
+                assert e.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Skills Router (per-user CRUD)
+# ---------------------------------------------------------------------------
+
+
+class TestSkillsRouter:
+    """Tests for Skills per-user CRUD endpoints."""
+
+    def _fake_user(self):
+        user = MagicMock()
+        user.user_id = uuid.uuid4()
+        user.tenant_id = uuid.uuid4()
+        user.email = "test@example.com"
+        user.role = "member"
+        return user
+
+    def test_upsert_skill_config(self):
+        from app.gateway.routers.skills import SkillUpdateRequest, upsert_user_skill_config
+
+        user = self._fake_user()
+        db = AsyncMock()
+        db.commit = AsyncMock()
+
+        record = MagicMock()
+        record.skill_name = "web-search"
+        record.enabled = False
+        record.bos_key = None
+
+        repo_mock = MagicMock()
+        repo_mock.upsert = AsyncMock(return_value=record)
+
+        request = SkillUpdateRequest(enabled=False)
+
+        with patch("app.gateway.routers.skills.SkillConfigRepo", return_value=repo_mock):
+            result = asyncio.run(upsert_user_skill_config("web-search", request, user=user, db=db))
+
+        assert result.skill_name == "web-search"
+        assert result.enabled is False
+        db.commit.assert_called_once()
+
+    def test_delete_skill_config_not_found(self):
+        from app.gateway.routers.skills import delete_user_skill_config
+
+        user = self._fake_user()
+        db = AsyncMock()
+
+        repo_mock = MagicMock()
+        repo_mock.delete = AsyncMock(return_value=False)
+
+        with patch("app.gateway.routers.skills.SkillConfigRepo", return_value=repo_mock):
+            try:
+                asyncio.run(delete_user_skill_config("nonexistent", user=user, db=db))
+                assert False, "Expected HTTPException"
+            except Exception as e:
+                assert e.status_code == 404
+
+    def test_delete_skill_config_success(self):
+        from app.gateway.routers.skills import delete_user_skill_config
+
+        user = self._fake_user()
+        db = AsyncMock()
+        db.commit = AsyncMock()
+
+        repo_mock = MagicMock()
+        repo_mock.delete = AsyncMock(return_value=True)
+
+        with patch("app.gateway.routers.skills.SkillConfigRepo", return_value=repo_mock):
+            result = asyncio.run(delete_user_skill_config("web-search", user=user, db=db))
+
+        assert result["success"] is True
+        db.commit.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Storage factory
+# ---------------------------------------------------------------------------
+
+
+class TestStorageFactory:
+    """Tests for get_object_storage() factory."""
+
+    def test_local_backend(self, tmp_path):
+        from crab_platform.storage import get_object_storage
+        import crab_platform.storage as storage_mod
+
+        # Reset singleton
+        storage_mod._instance = None
+
+        with patch("crab_platform.config.platform_config.get_platform_config") as mock_config:
+            cfg = MagicMock()
+            cfg.storage_backend = "local"
+            cfg.storage_root = str(tmp_path)
+            mock_config.return_value = cfg
+
+            storage = get_object_storage()
+
+        from crab_platform.storage.local import LocalObjectStorage
+
+        assert isinstance(storage, LocalObjectStorage)
+
+        # Cleanup singleton for other tests
+        storage_mod._instance = None
+
+    def test_unknown_backend_defaults_to_local(self):
+        """Unknown backend falls through to LocalObjectStorage (safe default)."""
+        from crab_platform.storage import get_object_storage
+        import crab_platform.storage as storage_mod
+
+        storage_mod._instance = None
+
+        with patch("crab_platform.config.platform_config.get_platform_config") as mock_config:
+            cfg = MagicMock()
+            cfg.storage_backend = "unknown"
+            cfg.storage_root = None
+            mock_config.return_value = cfg
+
+            storage = get_object_storage()
+
+        from crab_platform.storage.local import LocalObjectStorage
+
+        assert isinstance(storage, LocalObjectStorage)
+
+        storage_mod._instance = None

@@ -3,6 +3,7 @@
  */
 
 import { getBackendBaseURL } from "../config";
+import { fetchWithAuth, readErrorDetail } from "../http/fetch";
 
 export interface UploadedFileInfo {
   filename: string;
@@ -29,16 +30,6 @@ export interface ListFilesResponse {
   count: number;
 }
 
-async function readErrorDetail(
-  response: Response,
-  fallback: string,
-): Promise<string> {
-  const error = await response
-    .json()
-    .catch(() => ({ detail: fallback }));
-  return error.detail ?? fallback;
-}
-
 /**
  * Upload files to a thread
  */
@@ -52,7 +43,7 @@ export async function uploadFiles(
     formData.append("files", file);
   });
 
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${getBackendBaseURL()}/api/threads/${threadId}/uploads`,
     {
       method: "POST",
@@ -73,7 +64,7 @@ export async function uploadFiles(
 export async function listUploadedFiles(
   threadId: string,
 ): Promise<ListFilesResponse> {
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${getBackendBaseURL()}/api/threads/${threadId}/uploads/list`,
   );
 
@@ -93,7 +84,7 @@ export async function deleteUploadedFile(
   threadId: string,
   filename: string,
 ): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${getBackendBaseURL()}/api/threads/${threadId}/uploads/${filename}`,
     {
       method: "DELETE",

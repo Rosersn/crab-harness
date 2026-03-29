@@ -4,56 +4,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DeerFlow is a LangGraph-based AI super agent system with a full-stack architecture. The backend provides a "super agent" with sandbox execution, persistent memory, subagent delegation, and extensible tool integration - all operating in per-thread isolated environments.
+Crab Harness is a multi-tenant AI Agent platform built on LangGraph (as a library). The backend provides a "super agent" with sandbox execution, persistent memory, subagent delegation, and extensible tool integration - all operating in per-thread isolated environments.
 
-**Architecture**:
-- **LangGraph Server** (port 2024): Agent runtime and workflow execution
-- **Gateway API** (port 8001): REST API for models, MCP, skills, memory, artifacts, uploads, and local thread cleanup
+**Architecture** (three layers: Harness → Platform → App):
+- **Gateway API** (port 8001): FastAPI application with embedded Agent runtime, JWT auth, and LangGraph SDK-compatible streaming endpoints
 - **Frontend** (port 3000): Next.js web interface
 - **Nginx** (port 2026): Unified reverse proxy entry point
+- **PostgreSQL**: User/thread/message/run persistence (via crab-platform package)
+- **Redis**: Thread locks, rate limiting, session management
 - **Provisioner** (port 8002, optional in Docker dev): Started only when sandbox is configured for provisioner/Kubernetes mode
 
 **Project Structure**:
 ```
-deer-flow/
+crab-harness/
 ├── Makefile                    # Root commands (check, install, dev, stop)
 ├── config.yaml                 # Main application configuration
 ├── extensions_config.json      # MCP servers and skills configuration
 ├── backend/                    # Backend application (this directory)
 │   ├── Makefile               # Backend-only commands (dev, gateway, lint)
-│   ├── langgraph.json         # LangGraph server configuration
 │   ├── packages/
-│   │   └── harness/           # deerflow-harness package (import: deerflow.*)
+│   │   ├── harness/           # deerflow-harness package (import: deerflow.*)
+│   │   │   ├── pyproject.toml
+│   │   │   └── deerflow/      # Agent framework (tenant-agnostic)
+│   │   └── platform/          # crab-platform package (import: crab_platform.*)
 │   │       ├── pyproject.toml
-│   │       └── deerflow/
-│   │           ├── agents/            # LangGraph agent system
-│   │           │   ├── lead_agent/    # Main agent (factory + system prompt)
-│   │           │   ├── middlewares/   # 10 middleware components
-│   │           │   ├── memory/        # Memory extraction, queue, prompts
-│   │           │   └── thread_state.py # ThreadState schema
-│   │           ├── sandbox/           # Sandbox execution system
-│   │           │   ├── local/         # Local filesystem provider
-│   │           │   ├── sandbox.py     # Abstract Sandbox interface
-│   │           │   ├── tools.py       # bash, ls, read/write/str_replace
-│   │           │   └── middleware.py  # Sandbox lifecycle management
-│   │           ├── subagents/         # Subagent delegation system
-│   │           │   ├── builtins/      # general-purpose, bash agents
-│   │           │   ├── executor.py    # Background execution engine
-│   │           │   └── registry.py    # Agent registry
-│   │           ├── tools/builtins/    # Built-in tools (present_files, ask_clarification, view_image)
-│   │           ├── mcp/               # MCP integration (tools, cache, client)
-│   │           ├── models/            # Model factory with thinking/vision support
-│   │           ├── skills/            # Skills discovery, loading, parsing
-│   │           ├── config/            # Configuration system (app, model, sandbox, tool, etc.)
-│   │           ├── community/         # Community tools (tavily, jina_ai, firecrawl, image_search, aio_sandbox)
-│   │           ├── reflection/        # Dynamic module loading (resolve_variable, resolve_class)
-│   │           ├── utils/             # Utilities (network, readability)
-│   │           └── client.py          # Embedded Python client (DeerFlowClient)
+│   │       └── crab_platform/ # Multi-tenant orchestration layer
+│   │           ├── auth/      # JWT auth provider, password hashing
+│   │           ├── config/    # Platform config (env-based)
+│   │           ├── context.py # RequestContext dataclass
+│   │           ├── db/        # SQLAlchemy models + repos
+│   │           ├── sandbox/   # E2B cloud sandbox (provider, wrapper, cleaner, file injector)
+│   │           └── redis.py   # Thread locks, shared Redis connection
 │   ├── app/                   # Application layer (import: app.*)
-│   │   ├── gateway/           # FastAPI Gateway API
-│   │   │   ├── app.py         # FastAPI application
-│   │   │   └── routers/       # FastAPI route modules (models, mcp, memory, skills, uploads, threads, artifacts, agents, suggestions, channels)
-│   │   └── channels/          # IM platform integrations
+│   │   └── gateway/           # FastAPI Gateway API
+│   │       ├── app.py         # FastAPI application factory
+│   │       ├── deps.py        # DI: get_db, get_current_user, build_request_context
+│   │       ├── middleware.py  # Auth enforcement, request ID, access logging
+│   │       └── routers/       # Route modules (auth, langgraph_compat, models, mcp, memory, skills, uploads, threads, artifacts, agents, suggestions)
 │   ├── tests/                 # Test suite
 │   └── docs/                  # Documentation
 ├── frontend/                   # Next.js frontend application
@@ -79,15 +66,17 @@ When making code changes, you MUST update the relevant documentation:
 ```bash
 make check      # Check system requirements
 make install    # Install all dependencies (frontend + backend)
-make dev        # Start all services (LangGraph + Gateway + Frontend + Nginx), with config.yaml preflight
+make dev        # Start all services (Gateway + Frontend + Nginx), with config.yaml preflight
 make stop       # Stop all services
 ```
 
 **Backend directory** (for backend development only):
 ```bash
 make install    # Install backend dependencies
-make dev        # Run LangGraph server only (port 2024)
-make gateway    # Run Gateway API only (port 8001)
+make dev        # Run Gateway API with hot-reload (port 8001)
+make gateway    # Run Gateway API without reload (port 8001)
+make infra      # Start PostgreSQL + Redis via Docker Compose
+make infra-down # Stop PostgreSQL + Redis
 make test       # Run all backend tests
 make lint       # Lint with ruff
 make format     # Format code with ruff
@@ -104,14 +93,15 @@ CI runs these regression tests for every pull request via [.github/workflows/bac
 
 ## Architecture
 
-### Harness / App Split
+### Harness / Platform / App Split
 
-The backend is split into two layers with a strict dependency direction:
+The backend is split into three layers with a strict dependency direction:
 
-- **Harness** (`packages/harness/deerflow/`): Publishable agent framework package (`deerflow-harness`). Import prefix: `deerflow.*`. Contains agent orchestration, tools, sandbox, models, MCP, skills, config — everything needed to build and run agents.
-- **App** (`app/`): Unpublished application code. Import prefix: `app.*`. Contains the FastAPI Gateway API and IM channel integrations (Feishu, Slack, Telegram).
+- **Harness** (`packages/harness/deerflow/`): Publishable agent framework package (`deerflow-harness`). Import prefix: `deerflow.*`. Contains agent orchestration, tools, sandbox, models, MCP, skills, config — everything needed to build and run agents. Tenant-agnostic.
+- **Platform** (`packages/platform/crab_platform/`): Multi-tenant orchestration package (`crab-platform`). Import prefix: `crab_platform.*`. Contains auth, DB models/repos, request context, Redis integration, platform config. Depends on deerflow-harness.
+- **App** (`app/`): Unpublished application code. Import prefix: `app.*`. Contains the FastAPI Gateway API with auth middleware and LangGraph SDK-compatible streaming endpoints.
 
-**Dependency rule**: App imports deerflow, but deerflow never imports app. This boundary is enforced by `tests/test_harness_boundary.py` which runs in CI.
+**Dependency rule**: App → Platform → Harness. Each layer never imports from layers above it. This boundary is enforced by `tests/test_harness_boundary.py` and `tests/test_platform.py::TestLayerBoundary`.
 
 **Import conventions**:
 ```python
@@ -119,21 +109,26 @@ The backend is split into two layers with a strict dependency direction:
 from deerflow.agents import make_lead_agent
 from deerflow.models import create_chat_model
 
+# Platform internal
+from crab_platform.auth.jwt import JWTAuthProvider
+from crab_platform.context import RequestContext
+
 # App internal
 from app.gateway.app import app
-from app.channels.service import start_channel_service
+from app.gateway.deps import get_current_user
 
-# App → Harness (allowed)
+# App → Platform → Harness (allowed)
 from deerflow.config import get_app_config
+from crab_platform.db import get_db
 
-# Harness → App (FORBIDDEN — enforced by test_harness_boundary.py)
-# from app.gateway.routers.uploads import ...  # ← will fail CI
+# Harness → Platform or App (FORBIDDEN — enforced by CI)
+# Platform → App (FORBIDDEN — enforced by CI)
 ```
 
 ### Agent System
 
 **Lead Agent** (`packages/harness/deerflow/agents/lead_agent/agent.py`):
-- Entry point: `make_lead_agent(config: RunnableConfig)` registered in `langgraph.json`
+- Entry point: `make_lead_agent(config: RunnableConfig)` — called directly by Gateway (LangGraph used as library, not server)
 - Dynamic model selection via `create_chat_model()` with thinking/vision support
 - Tools loaded via `get_available_tools()` - combines sandbox, built-in, MCP, community, and subagent tools
 - System prompt generated by `apply_prompt_template()` with skills, memory, and subagent instructions
@@ -196,22 +191,26 @@ Configuration priority:
 
 ### Gateway API (`app/gateway/`)
 
-FastAPI application on port 8001 with health check at `GET /health`.
+FastAPI application on port 8001 with health check at `GET /health`. Embeds Agent runtime directly (LangGraph as library).
+
+**Authentication**: All `/api/*` routes (except `/health`, `/api/auth/*`) require Bearer JWT token. Auth is handled via `deps.get_current_user()` dependency injection and `AuthEnforcementMiddleware` safety net.
 
 **Routers**:
 
 | Router | Endpoints |
 |--------|-----------|
+| **Auth** (`/api/auth`) | `POST /register` - create tenant+user; `POST /login` - email/password → tokens; `POST /refresh` - refresh token; `GET /me` - current user |
+| **LangGraph Compat** (`/api/langgraph`) | LangGraph SDK-compatible endpoints: `POST /threads` - create; `POST /threads/search` - list; `GET /threads/{id}/state` - state; `POST /threads/{id}/runs/stream` - streaming run; `POST /threads/{id}/runs/{run_id}/stream` - join/reconnect; `DELETE /threads/{id}` - delete |
 | **Models** (`/api/models`) | `GET /` - list models; `GET /{name}` - model details |
 | **MCP** (`/api/mcp`) | `GET /config` - get config; `PUT /config` - update config (saves to extensions_config.json) |
-| **Skills** (`/api/skills`) | `GET /` - list skills; `GET /{name}` - details; `PUT /{name}` - update enabled; `POST /install` - install from .skill archive (accepts standard optional frontmatter like `version`, `author`, `compatibility`) |
+| **Skills** (`/api/skills`) | `GET /` - list skills; `GET /{name}` - details; `PUT /{name}` - update enabled; `POST /install` - install from .skill archive |
 | **Memory** (`/api/memory`) | `GET /` - memory data; `POST /reload` - force reload; `GET /config` - config; `GET /status` - config + data |
 | **Uploads** (`/api/threads/{id}/uploads`) | `POST /` - upload files (auto-converts PDF/PPT/Excel/Word); `GET /list` - list; `DELETE /{filename}` - delete |
-| **Threads** (`/api/threads/{id}`) | `DELETE /` - remove DeerFlow-managed local thread data after LangGraph thread deletion; unexpected failures are logged server-side and return a generic 500 detail |
-| **Artifacts** (`/api/threads/{id}/artifacts`) | `GET /{path}` - serve artifacts; active content types (`text/html`, `application/xhtml+xml`, `image/svg+xml`) are always forced as download attachments to reduce XSS risk; `?download=true` still forces download for other file types |
-| **Suggestions** (`/api/threads/{id}/suggestions`) | `POST /` - generate follow-up questions; rich list/block model content is normalized before JSON parsing |
+| **Threads** (`/api/threads/{id}`) | `DELETE /` - remove local thread data |
+| **Artifacts** (`/api/threads/{id}/artifacts`) | `GET /{path}` - serve artifacts; active content types forced as download attachments to reduce XSS risk |
+| **Suggestions** (`/api/threads/{id}/suggestions`) | `POST /` - generate follow-up questions |
 
-Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → Gateway.
+All `/api/*` routes proxied through nginx on port 2026 → Gateway on port 8001.
 
 ### Sandbox System (`packages/harness/deerflow/sandbox/`)
 
@@ -220,6 +219,7 @@ Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → 
 **Implementations**:
 - `LocalSandboxProvider` - Singleton local filesystem execution with path mappings
 - `AioSandboxProvider` (`packages/harness/deerflow/community/`) - Docker-based isolation
+- `E2BSandboxProvider` (`packages/platform/crab_platform/sandbox/`) - E2B cloud VM isolation with PG-backed lifecycle
 
 **Virtual Path System**:
 - Agent sees: `/mnt/user-data/{workspace,uploads,outputs}`, `/mnt/skills`
@@ -233,6 +233,18 @@ Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → 
 - `read_file` - Read file contents with optional line range
 - `write_file` - Write/append to files, creates directories
 - `str_replace` - Substring replacement (single or all occurrences)
+
+**E2B Cloud Sandbox** (`packages/platform/crab_platform/sandbox/`):
+- `E2BSandbox` - Wraps E2B SDK `Sandbox` instance, implements harness `Sandbox` ABC (sync methods)
+- `E2BSandboxProvider` - PG-backed lifecycle management: acquire (check cache → PG → connect/create), get, release (keepAlive timeout, no kill), terminate (kill + clear PG), shutdown
+- Uses `asyncio.Runner` (Python 3.12+) to bridge sync provider methods with async PG access
+- Thread ↔ sandbox_id mapping persisted in PG `threads` table (`sandbox_id`, `sandbox_status`, `sandbox_last_seen_at`)
+- `release()` sets E2B keepAlive timeout (default 30min), does NOT kill — matches `SandboxMiddleware.after_agent` semantics
+- `E2B Sandbox.connect()` auto-resumes paused instances
+- `file_injector.py` - Downloads uploaded files from BOS and writes into E2B sandbox at `/mnt/user-data/uploads/`
+- `cleaner.py` - Background daemon thread (`SandboxCleaner`) scans PG for stale sandboxes (default TTL 24h) and terminates them
+- Config: `sandbox.use: crab_platform.sandbox:E2BSandboxProvider` + `E2B_API_KEY` env var
+- Optional config fields: `keep_alive_seconds` (default 1800), `e2b_template` (E2B template name)
 
 ### Subagent System (`packages/harness/deerflow/subagents/`)
 
@@ -273,7 +285,7 @@ Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → 
 - **Cache invalidation**: Detects config file changes via mtime comparison
 - **Transports**: stdio (command-based), SSE, HTTP
 - **OAuth (HTTP/SSE)**: Supports token endpoint flows (`client_credentials`, `refresh_token`) with automatic token refresh + Authorization header injection
-- **Runtime updates**: Gateway API saves to extensions_config.json; LangGraph detects via mtime
+- **Runtime updates**: Gateway API saves to extensions_config.json; config changes detected via mtime
 
 ### Skills System (`packages/harness/deerflow/skills/`)
 
@@ -290,35 +302,6 @@ Proxied through nginx: `/api/langgraph/*` → LangGraph, all other `/api/*` → 
 - Supports `supports_vision` flag for image understanding models
 - Config values starting with `$` resolved as environment variables
 - Missing provider modules surface actionable install hints from reflection resolvers (for example `uv add langchain-google-genai`)
-
-### IM Channels System (`app/channels/`)
-
-Bridges external messaging platforms (Feishu, Slack, Telegram) to the DeerFlow agent via the LangGraph Server.
-
-**Architecture**: Channels communicate with the LangGraph Server through `langgraph-sdk` HTTP client (same as the frontend), ensuring threads are created and managed server-side.
-
-**Components**:
-- `message_bus.py` - Async pub/sub hub (`InboundMessage` → queue → dispatcher; `OutboundMessage` → callbacks → channels)
-- `store.py` - JSON-file persistence mapping `channel_name:chat_id[:topic_id]` → `thread_id` (keys are `channel:chat` for root conversations and `channel:chat:topic` for threaded conversations)
-- `manager.py` - Core dispatcher: creates threads via `client.threads.create()`, routes commands, keeps Slack/Telegram on `client.runs.wait()`, and uses `client.runs.stream(["messages-tuple", "values"])` for Feishu incremental outbound updates
-- `base.py` - Abstract `Channel` base class (start/stop/send lifecycle)
-- `service.py` - Manages lifecycle of all configured channels from `config.yaml`
-- `slack.py` / `feishu.py` / `telegram.py` - Platform-specific implementations (`feishu.py` tracks the running card `message_id` in memory and patches the same card in place)
-
-**Message Flow**:
-1. External platform -> Channel impl -> `MessageBus.publish_inbound()`
-2. `ChannelManager._dispatch_loop()` consumes from queue
-3. For chat: look up/create thread on LangGraph Server
-4. Feishu chat: `runs.stream()` → accumulate AI text → publish multiple outbound updates (`is_final=False`) → publish final outbound (`is_final=True`)
-5. Slack/Telegram chat: `runs.wait()` → extract final response → publish outbound
-6. Feishu channel sends one running reply card up front, then patches the same card for each outbound update (card JSON sets `config.update_multi=true` for Feishu's patch API requirement)
-7. For commands (`/new`, `/status`, `/models`, `/memory`, `/help`): handle locally or query Gateway API
-8. Outbound → channel callbacks → platform reply
-
-**Configuration** (`config.yaml` -> `channels`):
-- `langgraph_url` - LangGraph Server URL (default: `http://localhost:2024`)
-- `gateway_url` - Gateway API URL for auxiliary commands (default: `http://localhost:8001`)
-- Per-channel configs: `feishu` (app_id, app_secret), `slack` (bot_token, app_token), `telegram` (bot_token)
 
 ### Memory System (`packages/harness/deerflow/agents/memory/`)
 
@@ -371,13 +354,13 @@ Focused regression coverage for the updater lives in `backend/tests/test_memory_
 - `mcpServers` - Map of server name → config (enabled, type, command, args, env, url, headers, oauth, description)
 - `skills` - Map of skill name → state (enabled)
 
-Both can be modified at runtime via Gateway API endpoints or `DeerFlowClient` methods.
+Both can be modified at runtime via Gateway API endpoints.
 
 ### Embedded Client (`packages/harness/deerflow/client.py`)
 
 `DeerFlowClient` provides direct in-process access to all DeerFlow capabilities without HTTP services. All return types align with the Gateway API response schemas, so consumer code works identically in HTTP and embedded modes.
 
-**Architecture**: Imports the same `deerflow` modules that LangGraph Server and Gateway API use. Shares the same config files and data directories. No FastAPI dependency.
+**Architecture**: Imports the same `deerflow` modules that the Gateway API uses. Shares the same config files and data directories. No FastAPI dependency.
 
 **Agent Conversation** (replaces LangGraph Server):
 - `chat(message, thread_id)` — synchronous, returns final text
@@ -436,8 +419,7 @@ make dev
 This starts all services and makes the application available at `http://localhost:2026`.
 
 **Nginx routing**:
-- `/api/langgraph/*` → LangGraph Server (2024)
-- `/api/*` (other) → Gateway API (8001)
+- `/api/*` → Gateway API (8001)
 - `/` (non-API) → Frontend (3000)
 
 ### Running Backend Services Separately
@@ -445,15 +427,14 @@ This starts all services and makes the application available at `http://localhos
 From the **backend** directory:
 
 ```bash
-# Terminal 1: LangGraph server
-make dev
+# Start infrastructure (PostgreSQL + Redis)
+make infra
 
-# Terminal 2: Gateway API
-make gateway
+# Start Gateway API with hot-reload
+make dev
 ```
 
 Direct access (without nginx):
-- LangGraph: `http://localhost:2024`
 - Gateway: `http://localhost:8001`
 
 ### Frontend Configuration

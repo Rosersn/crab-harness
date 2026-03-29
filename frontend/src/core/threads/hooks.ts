@@ -8,7 +8,6 @@ import { toast } from "sonner";
 import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 import { getAPIClient } from "../api";
-import { getBackendBaseURL } from "../config";
 import { useI18n } from "../i18n/hooks";
 import type { FileInMessage } from "../messages/utils";
 import type { LocalSettings } from "../settings";
@@ -30,6 +29,7 @@ export type ThreadStreamOptions = {
   onStart?: (threadId: string) => void;
   onFinish?: (state: AgentThreadState) => void;
   onToolEnd?: (event: ToolEndEvent) => void;
+  onError?: (error: unknown) => void;
 };
 
 function getStreamErrorMessage(error: unknown): string {
@@ -62,6 +62,7 @@ export function useThreadStream({
   onStart,
   onFinish,
   onToolEnd,
+  onError,
 }: ThreadStreamOptions) {
   const { t } = useI18n();
   // Track the thread ID that is currently streaming to handle thread changes during streaming
@@ -69,42 +70,31 @@ export function useThreadStream({
   // Ref to track current thread ID across async callbacks without causing re-renders,
   // and to allow access to the current thread id in onUpdateEvent
   const threadIdRef = useRef<string | null>(threadId ?? null);
-  const startedRef = useRef(false);
 
   const listeners = useRef({
     onStart,
     onFinish,
     onToolEnd,
+    onError,
   });
 
   // Keep listeners ref updated with latest callbacks
   useEffect(() => {
-    listeners.current = { onStart, onFinish, onToolEnd };
-  }, [onStart, onFinish, onToolEnd]);
+    listeners.current = { onStart, onFinish, onToolEnd, onError };
+  }, [onStart, onFinish, onToolEnd, onError]);
 
   useEffect(() => {
     const normalizedThreadId = threadId ?? null;
-    if (!normalizedThreadId) {
-      // Just reset for new thread creation when threadId becomes null/undefined
-      startedRef.current = false;
-      setOnStreamThreadId(normalizedThreadId);
-    }
+    setOnStreamThreadId(normalizedThreadId);
     threadIdRef.current = normalizedThreadId;
   }, [threadId]);
-
-  const _handleOnStart = useCallback((id: string) => {
-    if (!startedRef.current) {
-      listeners.current.onStart?.(id);
-      startedRef.current = true;
-    }
-  }, []);
 
   const handleStreamStart = useCallback(
     (_threadId: string) => {
       threadIdRef.current = _threadId;
-      _handleOnStart(_threadId);
+      listeners.current.onStart?.(_threadId);
     },
-    [_handleOnStart],
+    [],
   );
 
   const queryClient = useQueryClient();
@@ -174,6 +164,7 @@ export function useThreadStream({
     },
     onError(error) {
       setOptimisticMessages([]);
+      listeners.current.onError?.(error);
       toast.error(getStreamErrorMessage(error));
     },
     onFinish(state) {
@@ -244,8 +235,6 @@ export function useThreadStream({
         });
       }
       setOptimisticMessages(newOptimistic);
-
-      _handleOnStart(threadId);
 
       let uploadedFileInfo: UploadedFileInfo[] = [];
 
@@ -395,7 +384,7 @@ export function useThreadStream({
         sendInFlightRef.current = false;
       }
     },
-    [thread, _handleOnStart, t.uploads.uploadingFiles, context, queryClient],
+    [thread, t.uploads.uploadingFiles, context, queryClient],
   );
 
   // Merge thread with optimistic messages for display
@@ -482,20 +471,6 @@ export function useDeleteThread() {
   return useMutation({
     mutationFn: async ({ threadId }: { threadId: string }) => {
       await apiClient.threads.delete(threadId);
-
-      const response = await fetch(
-        `${getBackendBaseURL()}/api/threads/${encodeURIComponent(threadId)}`,
-        {
-          method: "DELETE",
-        },
-      );
-
-      if (!response.ok) {
-        const error = await response
-          .json()
-          .catch(() => ({ detail: "Failed to delete local thread data." }));
-        throw new Error(error.detail ?? "Failed to delete local thread data.");
-      }
     },
     onSuccess(_, { threadId }) {
       queryClient.setQueriesData(

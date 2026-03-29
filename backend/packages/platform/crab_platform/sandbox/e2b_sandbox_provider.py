@@ -37,6 +37,7 @@ from crab_platform.sandbox.path_mapping import E2BPathMapping, build_e2b_path_ma
 
 if TYPE_CHECKING:
     from e2b import Sandbox as E2BSdkSandbox
+    from sqlalchemy.ext.asyncio import AsyncEngine
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ class E2BSandboxProvider(SandboxProvider):
         self._thread_to_sandbox: dict[str, str] = {}  # thread_id → sandbox_id
 
         self._runner = asyncio.Runner()
+        self._session_engine: AsyncEngine | None = None
         self._session_factory: async_sessionmaker[AsyncSession] | None = None
         self._shutdown_called = False
 
@@ -85,8 +87,8 @@ class E2BSandboxProvider(SandboxProvider):
 
     def _get_session_factory(self) -> async_sessionmaker[AsyncSession]:
         if self._session_factory is None:
-            from crab_platform.db import get_session_factory
-            self._session_factory = get_session_factory()
+            from crab_platform.db import create_isolated_session_factory
+            self._session_engine, self._session_factory = create_isolated_session_factory()
         return self._session_factory
 
     def _run_async(self, coro):
@@ -262,6 +264,8 @@ class E2BSandboxProvider(SandboxProvider):
             except Exception:
                 logger.debug("Shutdown: failed to set timeout on %s", sandbox_id, exc_info=True)
 
+        self._session_factory = None
+        self._session_engine = None
         try:
             self._runner.close()
         except Exception:
@@ -363,12 +367,11 @@ class E2BSandboxProvider(SandboxProvider):
 
         # Inject custom user skill directories so prompt-advertised skills are executable.
         try:
-            from crab_platform.db import get_session_factory
             from crab_platform.db.repos.thread_repo import ThreadRepo
             from crab_platform.sandbox.file_injector import inject_user_custom_skills
 
             async def _load_user_id() -> uuid.UUID | None:
-                async with get_session_factory()() as db:
+                async with self._get_session_factory()() as db:
                     thread = await ThreadRepo(db).get(uuid.UUID(thread_id))
                     return thread.user_id if thread is not None else None
 

@@ -9,6 +9,27 @@ class VolumeMountConfig(BaseModel):
     read_only: bool = Field(default=False, description="Whether the mount is read-only")
 
 
+class SandboxPathMappingConfig(BaseModel):
+    """Map stable virtual sandbox paths to runtime-specific actual paths."""
+
+    user_data_dir: str | None = Field(
+        default=None,
+        description="Actual root that backs virtual /mnt/user-data inside the runtime.",
+    )
+    skills_dir: str | None = Field(
+        default=None,
+        description="Actual root that backs virtual skills paths such as /mnt/skills.",
+    )
+    acp_workspace_dir: str | None = Field(
+        default=None,
+        description="Actual root that backs virtual /mnt/acp-workspace.",
+    )
+    working_directory: str | None = Field(
+        default=None,
+        description="Default working directory for command execution inside the sandbox runtime.",
+    )
+
+
 class SandboxConfig(BaseModel):
     """Config section for a sandbox.
 
@@ -57,21 +78,9 @@ class SandboxConfig(BaseModel):
         default_factory=dict,
         description="Environment variables to inject into the sandbox container. Values starting with $ will be resolved from host environment variables.",
     )
-    e2b_user_data_dir: str | None = Field(
-        default=None,
-        description="E2B-only: actual writable root inside the VM that virtual /mnt/user-data paths map to.",
-    )
-    e2b_skills_dir: str | None = Field(
-        default=None,
-        description="E2B-only: actual root inside the VM that virtual skills paths map to.",
-    )
-    e2b_acp_workspace_dir: str | None = Field(
-        default=None,
-        description="E2B-only: actual root inside the VM that virtual /mnt/acp-workspace maps to.",
-    )
-    e2b_working_directory: str | None = Field(
-        default=None,
-        description="E2B-only: default working directory for command execution.",
+    path_mapping: SandboxPathMappingConfig = Field(
+        default_factory=SandboxPathMappingConfig,
+        description="Optional mapping from stable virtual sandbox paths (/mnt/...) to runtime-specific actual paths.",
     )
 
     model_config = ConfigDict(extra="allow")

@@ -11,7 +11,6 @@ import asyncio
 
 import logging
 import os
-import shlex
 import stat
 import tempfile
 import uuid
@@ -30,6 +29,7 @@ from crab_platform.storage import get_object_storage
 from deerflow.config.paths import get_paths
 from deerflow.sandbox.sandbox_provider import get_sandbox_provider
 from deerflow.uploads.manager import (
+    claim_unique_filename,
     ensure_uploads_dir,
     normalize_filename,
     upload_artifact_url,
@@ -48,6 +48,25 @@ class UploadResponse(BaseModel):
     success: bool
     files: list[dict[str, str]]
     message: str
+
+
+def _build_file_info(thread_id: str, sandbox_uploads: Path, upload) -> dict[str, str]:
+    """Build the API response payload for an upload metadata record."""
+    info: dict[str, str] = {
+        "upload_id": str(upload.id),
+        "filename": upload.filename,
+        "size": str(upload.size_bytes),
+        "path": str(sandbox_uploads / upload.filename),
+        "virtual_path": upload_virtual_path(upload.filename),
+        "artifact_url": upload_artifact_url(thread_id, upload.filename),
+    }
+    if upload.markdown_bos_key:
+        md_name = f"{upload.filename}.extracted.md"
+        info["markdown_file"] = md_name
+        info["markdown_path"] = str(sandbox_uploads / md_name)
+        info["markdown_virtual_path"] = upload_virtual_path(md_name)
+        info["markdown_artifact_url"] = upload_artifact_url(thread_id, md_name)
+    return info
 
 
 def _bos_key(tenant_id: uuid.UUID, user_id: uuid.UUID, thread_id: uuid.UUID, upload_id: uuid.UUID, filename: str) -> str:
@@ -121,6 +140,77 @@ async def _sync_upload_to_sandbox(sandbox, virtual_path: str, content: bytes) ->
     await asyncio.to_thread(sandbox.update_file, virtual_path, content)
 
 
+def _write_local_upload(local_uploads_dir: Path | None, filename: str, content: bytes, sandbox_id: str) -> None:
+    """Write a file into the local thread uploads dir when available."""
+    if local_uploads_dir is None:
+        return
+    local_path = local_uploads_dir / filename
+    local_path.write_bytes(content)
+    if sandbox_id != "local":
+        _make_file_sandbox_writable(local_path)
+
+
+async def _materialize_upload_file(
+    *,
+    local_uploads_dir: Path | None,
+    sandbox_id: str,
+    sandbox,
+    filename: str,
+    content: bytes,
+) -> None:
+    """Ensure a file exists in the local thread dir and active sandbox."""
+    _write_local_upload(local_uploads_dir, filename, content, sandbox_id)
+    if sandbox_id != "local":
+        await _sync_upload_to_sandbox(sandbox, upload_virtual_path(filename), content)
+
+
+async def _existing_upload_matches(storage, upload, content: bytes) -> bool:
+    """Return True when an existing upload record has identical content."""
+    if upload.size_bytes != len(content):
+        return False
+    try:
+        existing_content = await storage.get(upload.bos_key)
+    except Exception:
+        logger.warning("Failed to read existing upload %s for dedupe check", upload.filename, exc_info=True)
+        return False
+    return existing_content == content
+
+
+async def _reuse_existing_upload(
+    *,
+    thread_id: str,
+    storage,
+    upload,
+    local_uploads_dir: Path | None,
+    sandbox_id: str,
+    sandbox,
+    sandbox_uploads: Path,
+) -> dict[str, str]:
+    """Rehydrate an existing upload into the current sandbox/local dir and return its payload."""
+    content = await storage.get(upload.bos_key)
+    await _materialize_upload_file(
+        local_uploads_dir=local_uploads_dir,
+        sandbox_id=sandbox_id,
+        sandbox=sandbox,
+        filename=upload.filename,
+        content=content,
+    )
+
+    if upload.markdown_bos_key:
+        md_content = await storage.get(upload.markdown_bos_key)
+        await _materialize_upload_file(
+            local_uploads_dir=local_uploads_dir,
+            sandbox_id=sandbox_id,
+            sandbox=sandbox,
+            filename=f"{upload.filename}.extracted.md",
+            content=md_content,
+        )
+
+    payload = _build_file_info(thread_id, sandbox_uploads, upload)
+    payload["reused"] = "true"
+    return payload
+
+
 @router.post("", response_model=UploadResponse)
 async def upload_files(
     thread_id: str,
@@ -142,8 +232,9 @@ async def upload_files(
     storage = get_object_storage()
     upload_repo = UploadRepo(db)
     uploaded_files: list[dict[str, str]] = []
-    existing_names = {u.filename for u in await upload_repo.list_for_thread(tid, user.user_id)}
-    batch_names: set[str] = set()
+    existing_uploads = await upload_repo.list_for_thread(tid, user.user_id)
+    existing_uploads_by_name = {u.filename: u for u in existing_uploads}
+    reserved_names = set(existing_uploads_by_name)
 
     # Local thread directory + sandbox (for UploadsMiddleware / Agent compatibility)
     try:
@@ -167,49 +258,55 @@ async def upload_files(
                 logger.warning("Skipping file with unsafe filename: %r", file.filename)
                 continue
 
-            if safe_filename in existing_names or safe_filename in batch_names:
-                raise HTTPException(
-                    status_code=409,
-                    detail=f"File '{safe_filename}' already exists in this thread. Rename it before uploading again.",
-                )
-            batch_names.add(safe_filename)
-
             try:
                 content = await file.read()
+                existing_upload = existing_uploads_by_name.get(safe_filename)
+                if existing_upload is not None and await _existing_upload_matches(storage, existing_upload, content):
+                    payload = await _reuse_existing_upload(
+                        thread_id=thread_id,
+                        storage=storage,
+                        upload=existing_upload,
+                        local_uploads_dir=local_uploads_dir,
+                        sandbox_id=sandbox_id,
+                        sandbox=sandbox,
+                        sandbox_uploads=sandbox_uploads,
+                    )
+                    logger.info("Reused existing upload %s for thread %s", safe_filename, tid)
+                    uploaded_files.append(payload)
+                    continue
+
+                effective_filename = claim_unique_filename(safe_filename, reserved_names)
                 upload_id = uuid.uuid4()
-                key = _bos_key(user.tenant_id, user.user_id, tid, upload_id, safe_filename)
+                key = _bos_key(user.tenant_id, user.user_id, tid, upload_id, effective_filename)
 
                 # 1. Store in object storage (BOS / local storage backend)
                 content_type = file.content_type or "application/octet-stream"
                 await storage.put(key, content, content_type=content_type)
 
                 # 2. Write to local thread directory (for UploadsMiddleware + sandbox compat)
-                if local_uploads_dir is not None:
-                    local_path = local_uploads_dir / safe_filename
-                    local_path.write_bytes(content)
-                    if sandbox_id != "local":
-                        _make_file_sandbox_writable(local_path)
-
-                # 3. Sync to sandbox (non-local sandbox only)
-                virtual_path = upload_virtual_path(safe_filename)
-                if sandbox_id != "local":
-                    await _sync_upload_to_sandbox(sandbox, virtual_path, content)
+                await _materialize_upload_file(
+                    local_uploads_dir=local_uploads_dir,
+                    sandbox_id=sandbox_id,
+                    sandbox=sandbox,
+                    filename=effective_filename,
+                    content=content,
+                )
 
                 file_info: dict[str, str] = {
-                    "filename": safe_filename,
+                    "filename": effective_filename,
                     "size": str(len(content)),
-                    "path": str(sandbox_uploads / safe_filename),
-                    "virtual_path": virtual_path,
-                    "artifact_url": upload_artifact_url(thread_id, safe_filename),
+                    "path": str(sandbox_uploads / effective_filename),
+                    "virtual_path": upload_virtual_path(effective_filename),
+                    "artifact_url": upload_artifact_url(thread_id, effective_filename),
                 }
 
                 markdown_bos_key: str | None = None
 
                 # 4. Convert document to markdown if applicable
-                file_ext = Path(safe_filename).suffix.lower()
+                file_ext = Path(effective_filename).suffix.lower()
                 if file_ext in CONVERTIBLE_EXTENSIONS:
                     # Use local file if available, otherwise temp file
-                    convert_source = local_uploads_dir / safe_filename if local_uploads_dir else None
+                    convert_source = local_uploads_dir / effective_filename if local_uploads_dir else None
                     tmp_path: Path | None = None
                     if convert_source is None or not convert_source.exists():
                         tmp = tempfile.NamedTemporaryFile(suffix=file_ext, delete=False)
@@ -226,19 +323,15 @@ async def upload_files(
                             await storage.put(md_key, md_content, content_type="text/markdown")
                             markdown_bos_key = md_key
 
-                            md_name = f"{safe_filename}.extracted.md"
+                            md_name = f"{effective_filename}.extracted.md"
                             md_virtual_path = upload_virtual_path(md_name)
-
-                            # Write markdown to local dir + sandbox
-                            if local_uploads_dir is not None:
-                                local_md = local_uploads_dir / md_name
-                                if not local_md.exists():
-                                    local_md.write_bytes(md_content)
-                                if sandbox_id != "local":
-                                    _make_file_sandbox_writable(local_md)
-
-                            if sandbox_id != "local":
-                                await _sync_upload_to_sandbox(sandbox, md_virtual_path, md_content)
+                            await _materialize_upload_file(
+                                local_uploads_dir=local_uploads_dir,
+                                sandbox_id=sandbox_id,
+                                sandbox=sandbox,
+                                filename=md_name,
+                                content=md_content,
+                            )
 
                             file_info["markdown_file"] = md_name
                             file_info["markdown_path"] = str(sandbox_uploads / md_name)
@@ -257,14 +350,15 @@ async def upload_files(
                     thread_id=tid,
                     user_id=user.user_id,
                     tenant_id=user.tenant_id,
-                    filename=safe_filename,
+                    filename=effective_filename,
                     size_bytes=len(content),
                     bos_key=key,
                     markdown_bos_key=markdown_bos_key,
                 )
                 file_info["upload_id"] = str(record.id)
+                existing_uploads_by_name[effective_filename] = record
 
-                logger.info("Uploaded %s (%d bytes) → %s", safe_filename, len(content), key)
+                logger.info("Uploaded %s (%d bytes) → %s", effective_filename, len(content), key)
                 uploaded_files.append(file_info)
 
             except HTTPException:

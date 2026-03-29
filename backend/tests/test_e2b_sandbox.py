@@ -11,6 +11,7 @@ import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -36,6 +37,52 @@ def _make_e2b_sandbox_mock(sandbox_id: str = SANDBOX_ID) -> MagicMock:
     sbx.set_timeout.return_value = None
     sbx.kill.return_value = None
     return sbx
+
+
+# ===========================================================================
+# E2B path mapping config tests
+# ===========================================================================
+
+class TestE2BPathMappingConfig:
+    def test_build_e2b_path_mapping_uses_nested_config(self):
+        from crab_platform.sandbox.path_mapping import build_e2b_path_mapping
+
+        mock_config = SimpleNamespace(
+            sandbox=SimpleNamespace(
+                path_mapping=SimpleNamespace(
+                    user_data_dir="/home/user/runtime-data",
+                    skills_dir="/home/user/runtime-skills",
+                    acp_workspace_dir="/home/user/runtime-acp",
+                    working_directory="/home/user/runtime-data/workspace",
+                )
+            ),
+            skills=SimpleNamespace(container_path="/mnt/skills"),
+        )
+
+        with patch("deerflow.config.get_app_config", return_value=mock_config):
+            mapping = build_e2b_path_mapping()
+
+        assert mapping.actual_user_data_root == "/home/user/runtime-data"
+        assert mapping.actual_skills_root == "/home/user/runtime-skills"
+        assert mapping.actual_acp_workspace_root == "/home/user/runtime-acp"
+        assert mapping.working_directory == "/home/user/runtime-data/workspace"
+        assert mapping.virtual_skills_root == "/mnt/skills"
+
+    def test_build_e2b_path_mapping_defaults_when_path_mapping_missing(self):
+        from crab_platform.sandbox.path_mapping import build_e2b_path_mapping
+
+        mock_config = SimpleNamespace(
+            sandbox=SimpleNamespace(path_mapping=SimpleNamespace()),
+            skills=SimpleNamespace(container_path="/mnt/skills"),
+        )
+
+        with patch("deerflow.config.get_app_config", return_value=mock_config):
+            mapping = build_e2b_path_mapping()
+
+        assert mapping.actual_user_data_root == "/home/user/.deerflow/user-data"
+        assert mapping.actual_skills_root == "/home/user/.deerflow/skills"
+        assert mapping.actual_acp_workspace_root == "/home/user/.deerflow/acp-workspace"
+        assert mapping.working_directory == "/home/user/.deerflow/user-data/workspace"
 
 
 # ===========================================================================

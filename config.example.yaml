@@ -401,12 +401,25 @@ sandbox:
 #   # e2b_template: "base"
 #   # Optional: keepAlive timeout in seconds after release (default: 1800 = 30min)
 #   # keep_alive_seconds: 1800
-#   # Optional: actual writable roots inside the E2B VM. DeerFlow still uses
-#   # virtual /mnt/... paths in prompts/tools and maps them to these paths.
-#   # e2b_user_data_dir: /home/user/.crab/user-data
-#   # e2b_skills_dir: /home/user/.crab/skills
-#   # e2b_acp_workspace_dir: /home/user/.crab/acp-workspace
-#   # e2b_working_directory: /home/user/.crab/user-data/workspace
+#   # Optional: map DeerFlow's stable virtual /mnt/... paths to real writable
+#   # directories inside the E2B VM. Prompts and tools still see /mnt/... .
+#   # path_mapping:
+#   #   # Actual root behind /mnt/user-data.
+#   #   # DeerFlow will use:
+#   #   #   {user_data_dir}/workspace  -> working files the agent edits
+#   #   #   {user_data_dir}/uploads    -> uploaded attachments injected into the VM
+#   #   #   {user_data_dir}/outputs    -> files presented back to the user
+#   #   user_data_dir: /home/user/.deerflow/user-data
+#   #   # Actual root behind /mnt/skills.
+#   #   # Built-in and custom skills are read from here inside E2B.
+#   #   skills_dir: /home/user/.deerflow/skills
+#   #   # Actual root behind /mnt/acp-workspace.
+#   #   # Used for ACP / sub-agent handoff files and intermediate artifacts.
+#   #   acp_workspace_dir: /home/user/.deerflow/acp-workspace
+#   #   # Default working directory (cwd) for command execution in the sandbox.
+#   #   # Usually point this at the workspace under user_data_dir so relative
+#   #   # paths land in the thread workspace by default.
+#   #   working_directory: /home/user/.deerflow/user-data/workspace
 
 # ============================================================================
 # Subagents Configuration

@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class SandboxCleaner:
         e2b_api_url: str | None = None,
     ) -> None:
         self._session_factory = session_factory
+        self._session_engine: AsyncEngine | None = None
         self._ttl_hours = ttl_hours
         self._check_interval = check_interval_minutes * 60  # seconds
         self._stop_event = threading.Event()
@@ -52,8 +54,8 @@ class SandboxCleaner:
 
     def _get_session_factory(self):
         if self._session_factory is None:
-            from crab_platform.db import get_session_factory
-            self._session_factory = get_session_factory()
+            from crab_platform.db import create_isolated_session_factory
+            self._session_engine, self._session_factory = create_isolated_session_factory()
         return self._session_factory
 
     def start(self) -> None:
@@ -78,6 +80,8 @@ class SandboxCleaner:
         self._stop_event.set()
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=10)
+        self._session_factory = None
+        self._session_engine = None
         logger.info("E2B SandboxCleaner stopped")
 
     def _run_loop(self) -> None:

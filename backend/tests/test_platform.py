@@ -276,6 +276,41 @@ class TestLangGraphCompatSchemas:
 
 
 class TestLangGraphCompatHelpers:
+    def test_internal_stream_message_detects_title_middleware_node(self):
+        from app.gateway.routers.langgraph_compat import _is_internal_stream_message
+
+        assert _is_internal_stream_message({"langgraph_node": "TitleMiddleware.after_model"}) is True
+
+    def test_internal_stream_message_ignores_primary_model_node(self):
+        from app.gateway.routers.langgraph_compat import _is_internal_stream_message
+
+        assert _is_internal_stream_message({"langgraph_node": "model"}) is False
+        assert _is_internal_stream_message({"langgraph_node": "tools"}) is False
+        assert _is_internal_stream_message({"langgraph_node": "agent"}) is False
+        assert _is_internal_stream_message({}) is False
+
+    def test_internal_stream_message_detects_other_middleware_hooks(self):
+        from app.gateway.routers.langgraph_compat import _is_internal_stream_message
+
+        assert _is_internal_stream_message({"langgraph_node": "LoopDetectionMiddleware.after_model"}) is True
+        assert _is_internal_stream_message({"langgraph_node": "MemoryMiddleware.before_model"}) is True
+
+    def test_filter_serialized_messages_by_id_removes_internal_ids(self):
+        from app.gateway.routers.langgraph_compat import _filter_serialized_messages_by_id
+
+        messages = [
+            {"id": "user-1", "type": "human", "content": "hi"},
+            {"id": "internal-1", "type": "ai", "content": "title"},
+            {"id": "tool-1", "type": "tool", "content": "ok"},
+        ]
+
+        filtered = _filter_serialized_messages_by_id(messages, {"internal-1"})
+
+        assert filtered == [
+            {"id": "user-1", "type": "human", "content": "hi"},
+            {"id": "tool-1", "type": "tool", "content": "ok"},
+        ]
+
     def test_merge_serialized_messages_preserves_history(self):
         from app.gateway.routers.langgraph_compat import _merge_serialized_messages
 

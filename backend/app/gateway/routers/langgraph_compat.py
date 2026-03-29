@@ -59,6 +59,13 @@ _run_live_streams: dict[uuid.UUID, _RunLiveStreamState] = {}
 
 _LOCK_HEARTBEAT_INTERVAL = 120  # seconds between heartbeat extensions
 _LOCK_HEARTBEAT_TTL = 600  # TTL to set on each heartbeat
+_VISIBLE_STREAM_NODES = frozenset({"agent", "model", "tools"})
+_INTERNAL_STREAM_NODE_SUFFIXES = (
+    ".before_agent",
+    ".after_agent",
+    ".before_model",
+    ".after_model",
+)
 
 
 # ── Request / Response schemas ──────────────────────────────────────────
@@ -167,13 +174,81 @@ def _merge_serialized_messages(
     for message in new_messages:
         message_id = message.get("id")
         if isinstance(message_id, str) and message_id in index_by_id:
-            merged[index_by_id[message_id]] = message
+            current = merged[index_by_id[message_id]]
+            updated = {**current, **message}
+
+            for key in ("tool_calls", "tool_call_id", "additional_kwargs", "usage_metadata"):
+                if message.get(key) in (None, [], {}):
+                    if current.get(key) not in (None, [], {}):
+                        updated[key] = current[key]
+
+            if message.get("content") in (None, "", []):
+                if current.get("content") not in (None, "", []):
+                    updated["content"] = current["content"]
+
+            merged[index_by_id[message_id]] = updated
             continue
         if isinstance(message_id, str):
             index_by_id[message_id] = len(merged)
         merged.append(message)
 
     return merged
+
+
+def _messages_to_persist(
+    messages: list[dict[str, Any]],
+    existing_message_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Return newly generated non-human messages in stable order for PG persistence."""
+    persisted: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    for message in messages:
+        if message.get("type") == "human":
+            continue
+
+        message_id = message.get("id")
+        if isinstance(message_id, str):
+            if message_id in existing_message_ids or message_id in seen_ids:
+                continue
+            seen_ids.add(message_id)
+
+        persisted.append(message)
+
+    return persisted
+
+
+def _filter_serialized_messages_by_id(
+    messages: list[dict[str, Any]],
+    excluded_ids: set[str],
+) -> list[dict[str, Any]]:
+    """Remove messages whose ids are known to belong to internal middleware calls."""
+    if not excluded_ids:
+        return list(messages)
+
+    return [
+        message
+        for message in messages
+        if not (
+            isinstance(message.get("id"), str)
+            and message["id"] in excluded_ids
+        )
+    ]
+
+
+def _is_internal_stream_message(metadata: dict[str, Any] | None) -> bool:
+    """Whether a streamed message belongs to an internal middleware/model node."""
+    if not isinstance(metadata, dict):
+        return False
+
+    langgraph_node = metadata.get("langgraph_node")
+    if not isinstance(langgraph_node, str) or not langgraph_node:
+        return False
+
+    if langgraph_node in _VISIBLE_STREAM_NODES:
+        return False
+
+    return any(langgraph_node.endswith(suffix) for suffix in _INTERNAL_STREAM_NODE_SUFFIXES)
 
 
 def _serialize_stream_message(msg) -> dict[str, Any]:
@@ -625,16 +700,24 @@ async def stream_run(
                         human_text = str(content)
 
                 input_state = {"messages": [HumanMessage(content=human_text)]}
+                stream_context: dict[str, Any] = {
+                    "thread_id": str(thread_id),
+                }
+                agent_name = configurable.get("agent_name")
+                if isinstance(agent_name, str) and agent_name:
+                    stream_context["agent_name"] = agent_name
 
                 # Stream the agent.
                 # We need both:
                 # - messages: token/message chunks for incremental UI rendering
                 # - values: full state snapshots for thread state + persistence
                 streamed_message_ids: set[str] = set()
+                internal_stream_message_ids: set[str] = set()
 
                 async for mode, data in agent.astream(
                     input_state,
                     config=runnable_config,
+                    context=stream_context,
                     stream_mode=["messages", "values"],
                 ):
                     # Check for cancellation between chunks
@@ -654,8 +737,22 @@ async def stream_run(
 
                     if mode == "messages":
                         streamed_message, metadata = data
+                        message_metadata = dict(metadata) if isinstance(metadata, dict) else {}
                         serialized_stream_message = _serialize_stream_message(streamed_message)
                         stream_message_id = serialized_stream_message.get("id")
+                        if _is_internal_stream_message(message_metadata):
+                            if isinstance(stream_message_id, str):
+                                internal_stream_message_ids.add(stream_message_id)
+                                full_state_messages = _filter_serialized_messages_by_id(
+                                    full_state_messages,
+                                    internal_stream_message_ids,
+                                )
+                            logger.debug(
+                                "Skipping internal stream message from %s for run %s",
+                                message_metadata.get("langgraph_node"),
+                                run_id,
+                            )
+                            continue
                         if isinstance(stream_message_id, str) and stream_message_id not in existing_message_ids:
                             streamed_message_ids.add(stream_message_id)
                             accumulated_message = streamed_message_accumulators.get(stream_message_id)
@@ -678,7 +775,6 @@ async def stream_run(
                                 artifacts,
                                 todos,
                             )
-                        message_metadata = dict(metadata) if isinstance(metadata, dict) else {}
                         message_metadata["run_id"] = str(run_id)
                         await _publish_run_live_event(
                             run_id,
@@ -701,8 +797,10 @@ async def stream_run(
 
                     serialized = []
                     for msg in messages:
-                        msg_id = getattr(msg, "id", None)
                         s = _serialize_langchain_message(msg)
+                        msg_id = s.get("id")
+                        if isinstance(msg_id, str) and msg_id in internal_stream_message_ids:
+                            continue
                         serialized.append(s)
                         if isinstance(msg_id, str) and msg_id not in existing_message_ids:
                             streamed_message_ids.add(msg_id)
@@ -710,6 +808,10 @@ async def stream_run(
                     full_state_messages = _merge_serialized_messages(
                         full_state_messages,
                         serialized,
+                    )
+                    full_state_messages = _filter_serialized_messages_by_id(
+                        full_state_messages,
+                        internal_stream_message_ids,
                     )
                     values_payload = _serialize_values_payload(
                         full_state_messages,
@@ -727,42 +829,22 @@ async def stream_run(
                     )
 
             # Save AI response messages to PG using a fresh session
-            # Only save non-human messages generated during this run (exclude input)
             from crab_platform.db import get_session_factory
-            from langchain_core.messages import AIMessage, HumanMessage as HM, ToolMessage
 
             async with get_session_factory()() as post_db:
                 post_msg_repo = MessageRepo(post_db)
                 post_run_repo = RunRepo(post_db)
 
-                # Track input message IDs to exclude from re-persistence
-                input_msg_ids = set()
-                if messages:
-                    # The first message in `messages` is the HumanMessage we sent
-                    first_msg = messages[0]
-                    if isinstance(first_msg, HM) and getattr(first_msg, "id", None):
-                        input_msg_ids.add(first_msg.id)
-
-                for msg in messages:
-                    msg_id = getattr(msg, "id", None)
-                    if msg_id and msg_id in existing_message_ids:
-                        continue
-                    if msg_id and msg_id in input_msg_ids:
-                        continue
-                    if msg_id and msg_id not in streamed_message_ids:
-                        continue
-                    if isinstance(msg, HM):
-                        continue  # Don't re-save input messages
-
-                    role = "ai" if isinstance(msg, AIMessage) else "tool" if isinstance(msg, ToolMessage) else "system"
+                for msg in _messages_to_persist(full_state_messages, existing_message_ids):
+                    role = msg.get("type", "system")
                     await post_msg_repo.create(
                         thread_id=thread_id,
                         tenant_id=user.tenant_id,
                         role=role,
-                        content=msg.content if isinstance(msg.content, str) else msg.content,
+                        content=msg.get("content"),
                         run_id=run_id,
-                        tool_calls=msg.tool_calls if isinstance(msg, AIMessage) and msg.tool_calls else None,
-                        tool_call_id=getattr(msg, "tool_call_id", None),
+                        tool_calls=msg.get("tool_calls"),
+                        tool_call_id=msg.get("tool_call_id"),
                     )
 
                 # Update title if generated
@@ -803,21 +885,19 @@ async def stream_run(
                     err_run_repo = RunRepo(err_db)
                     err_msg_repo = MessageRepo(err_db)
                     # Save any partial messages generated before failure
-                    from langchain_core.messages import AIMessage as _AI, ToolMessage as _TM, HumanMessage as _HM
-                    if messages:
-                        for msg in messages:
-                            msg_id = getattr(msg, "id", None)
-                            if not msg_id or msg_id not in streamed_message_ids or isinstance(msg, _HM):
-                                continue
-                            role = "ai" if isinstance(msg, _AI) else "tool" if isinstance(msg, _TM) else "system"
-                            try:
-                                await err_msg_repo.create(
-                                    thread_id=thread_id, tenant_id=user.tenant_id,
-                                    role=role, content=getattr(msg, "content", ""),
-                                    run_id=run_id,
-                                )
-                            except Exception:
-                                break  # Don't fail on partial save
+                    for msg in _messages_to_persist(full_state_messages, existing_message_ids):
+                        try:
+                            await err_msg_repo.create(
+                                thread_id=thread_id,
+                                tenant_id=user.tenant_id,
+                                role=msg.get("type", "system"),
+                                content=msg.get("content"),
+                                run_id=run_id,
+                                tool_calls=msg.get("tool_calls"),
+                                tool_call_id=msg.get("tool_call_id"),
+                            )
+                        except Exception:
+                            break  # Don't fail on partial save
                     await err_run_repo.update_status(run_id, "failed", error=str(e)[:500])
                     await err_db.commit()
             except Exception:

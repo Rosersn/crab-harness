@@ -29,6 +29,11 @@ def _join(base: str, relative: str) -> str:
     return str(PurePosixPath(base.rstrip("/")) / relative.lstrip("/"))
 
 
+def _string_attr(obj: object, name: str) -> str | None:
+    value = getattr(obj, name, None)
+    return value if isinstance(value, str) and value else None
+
+
 @dataclass(frozen=True)
 class E2BPathMapping:
     """Describes how DeerFlow virtual sandbox paths map into E2B paths."""
@@ -106,11 +111,12 @@ def build_e2b_path_mapping() -> E2BPathMapping:
 
     config = get_app_config()
     sandbox_config = config.sandbox
+    mapping_config = getattr(sandbox_config, "path_mapping", None)
 
-    actual_user_data_root = getattr(sandbox_config, "e2b_user_data_dir", None) or _DEFAULT_ACTUAL_USER_DATA_ROOT
-    actual_skills_root = getattr(sandbox_config, "e2b_skills_dir", None) or _DEFAULT_ACTUAL_SKILLS_ROOT
-    actual_acp_root = getattr(sandbox_config, "e2b_acp_workspace_dir", None) or _DEFAULT_ACTUAL_ACP_ROOT
-    working_directory = getattr(sandbox_config, "e2b_working_directory", None) or _join(actual_user_data_root, "workspace")
+    actual_user_data_root = _string_attr(mapping_config, "user_data_dir") or _DEFAULT_ACTUAL_USER_DATA_ROOT
+    actual_skills_root = _string_attr(mapping_config, "skills_dir") or _DEFAULT_ACTUAL_SKILLS_ROOT
+    actual_acp_root = _string_attr(mapping_config, "acp_workspace_dir") or _DEFAULT_ACTUAL_ACP_ROOT
+    working_directory = _string_attr(mapping_config, "working_directory") or _join(actual_user_data_root, "workspace")
 
     virtual_skills_root = getattr(config.skills, "container_path", None)
     if not isinstance(virtual_skills_root, str) or not virtual_skills_root:

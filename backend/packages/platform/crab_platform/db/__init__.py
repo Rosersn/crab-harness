@@ -1,6 +1,7 @@
 """SQLAlchemy async engine and session factory."""
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import NullPool
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from crab_platform.config.platform_config import get_platform_config
 
@@ -30,6 +31,27 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
             expire_on_commit=False,
         )
     return _session_factory
+
+
+def create_isolated_session_factory() -> tuple[AsyncEngine, async_sessionmaker[AsyncSession]]:
+    """Create a standalone async engine/sessionmaker for background loops.
+
+    Used by components such as the E2B sandbox provider/cleaner that run DB
+    work on their own event loop. NullPool avoids sharing loop-bound asyncpg
+    connections with the main FastAPI request loop.
+    """
+    config = get_platform_config()
+    engine = create_async_engine(
+        config.database_url,
+        pool_pre_ping=True,
+        poolclass=NullPool,
+    )
+    factory = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    return engine, factory
 
 
 async def get_db() -> AsyncSession:

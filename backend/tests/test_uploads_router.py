@@ -32,6 +32,7 @@ def _fake_storage():
     """Create a fake ObjectStorage."""
     storage = AsyncMock()
     storage.put = AsyncMock(return_value="key")
+    storage.get = AsyncMock()
     storage.delete = AsyncMock()
     return storage
 
@@ -287,6 +288,134 @@ def test_upload_files_rejects_unsafe_filenames(tmp_path):
         assert result.success is True
         assert len(result.files) == 1
         assert result.files[0]["filename"] == "passwd"
+
+
+def test_upload_files_reuses_existing_identical_file(tmp_path):
+    """Retrying the same file in a thread should be treated as idempotent success."""
+    user = _fake_user()
+    db = _fake_db()
+    storage = _fake_storage()
+    provider, sandbox = _sandbox_mocks("local")
+    existing_upload = _fake_upload_record(filename="notes.txt", size_bytes=13, bos_key="existing-key")
+    storage.get = AsyncMock(return_value=b"hello uploads")
+
+    thread_repo_mock = MagicMock()
+    thread_repo_mock.get = AsyncMock(return_value=_fake_thread_record(user_id=user.user_id))
+    thread_repo_mock.create = AsyncMock()
+
+    repo_mock = MagicMock()
+    repo_mock.list_for_thread = AsyncMock(return_value=[existing_upload])
+    repo_mock.create = AsyncMock()
+
+    with (
+        patch.object(uploads, "get_object_storage", return_value=storage),
+        patch("app.gateway.routers.uploads.UploadRepo", return_value=repo_mock),
+        patch("app.gateway.routers.uploads.ThreadRepo", return_value=thread_repo_mock),
+        patch.object(uploads, "ensure_uploads_dir", return_value=tmp_path),
+        patch.object(uploads, "get_sandbox_provider", return_value=provider),
+    ):
+        file = UploadFile(filename="notes.txt", file=BytesIO(b"hello uploads"))
+        result = asyncio.run(
+            uploads.upload_files(
+                thread_id=str(uuid.uuid4()),
+                files=[file],
+                user=user,
+                db=db,
+            )
+        )
+
+    assert result.success is True
+    assert result.files[0]["filename"] == "notes.txt"
+    assert result.files[0]["reused"] == "true"
+    storage.put.assert_not_called()
+    repo_mock.create.assert_not_called()
+    assert (tmp_path / "notes.txt").read_bytes() == b"hello uploads"
+
+
+def test_upload_files_renames_when_existing_filename_has_different_content(tmp_path):
+    """A conflicting filename with different content should be auto-renamed."""
+    user = _fake_user()
+    db = _fake_db()
+    storage = _fake_storage()
+    provider, sandbox = _sandbox_mocks("local")
+    existing_upload = _fake_upload_record(filename="notes.txt", size_bytes=8, bos_key="existing-key")
+    created_upload = _fake_upload_record(filename="notes_1.txt", size_bytes=13, bos_key="new-key")
+    storage.get = AsyncMock(return_value=b"old data")
+
+    thread_repo_mock = MagicMock()
+    thread_repo_mock.get = AsyncMock(return_value=_fake_thread_record(user_id=user.user_id))
+    thread_repo_mock.create = AsyncMock()
+
+    repo_mock = MagicMock()
+    repo_mock.list_for_thread = AsyncMock(return_value=[existing_upload])
+    repo_mock.create = AsyncMock(return_value=created_upload)
+
+    with (
+        patch.object(uploads, "get_object_storage", return_value=storage),
+        patch("app.gateway.routers.uploads.UploadRepo", return_value=repo_mock),
+        patch("app.gateway.routers.uploads.ThreadRepo", return_value=thread_repo_mock),
+        patch.object(uploads, "ensure_uploads_dir", return_value=tmp_path),
+        patch.object(uploads, "get_sandbox_provider", return_value=provider),
+    ):
+        file = UploadFile(filename="notes.txt", file=BytesIO(b"hello uploads"))
+        result = asyncio.run(
+            uploads.upload_files(
+                thread_id=str(uuid.uuid4()),
+                files=[file],
+                user=user,
+                db=db,
+            )
+        )
+
+    assert result.success is True
+    assert result.files[0]["filename"] == "notes_1.txt"
+    repo_mock.create.assert_awaited_once()
+    assert repo_mock.create.await_args.kwargs["filename"] == "notes_1.txt"
+    storage.put.assert_awaited_once()
+    assert (tmp_path / "notes_1.txt").read_bytes() == b"hello uploads"
+
+
+def test_upload_files_duplicate_names_in_batch_do_not_fail(tmp_path):
+    """A duplicate name in the same batch should be renamed instead of failing the request."""
+    user = _fake_user()
+    db = _fake_db()
+    storage = _fake_storage()
+    provider, sandbox = _sandbox_mocks("local")
+    created_uploads = [
+        _fake_upload_record(filename="notes.txt", size_bytes=5, bos_key="k1"),
+        _fake_upload_record(filename="notes_1.txt", size_bytes=6, bos_key="k2"),
+    ]
+
+    thread_repo_mock = MagicMock()
+    thread_repo_mock.get = AsyncMock(return_value=_fake_thread_record(user_id=user.user_id))
+    thread_repo_mock.create = AsyncMock()
+
+    repo_mock = MagicMock()
+    repo_mock.list_for_thread = AsyncMock(return_value=[])
+    repo_mock.create = AsyncMock(side_effect=created_uploads)
+
+    with (
+        patch.object(uploads, "get_object_storage", return_value=storage),
+        patch("app.gateway.routers.uploads.UploadRepo", return_value=repo_mock),
+        patch("app.gateway.routers.uploads.ThreadRepo", return_value=thread_repo_mock),
+        patch.object(uploads, "ensure_uploads_dir", return_value=tmp_path),
+        patch.object(uploads, "get_sandbox_provider", return_value=provider),
+    ):
+        result = asyncio.run(
+            uploads.upload_files(
+                thread_id=str(uuid.uuid4()),
+                files=[
+                    UploadFile(filename="notes.txt", file=BytesIO(b"first")),
+                    UploadFile(filename="notes.txt", file=BytesIO(b"second")),
+                ],
+                user=user,
+                db=db,
+            )
+        )
+
+    assert result.success is True
+    assert [file["filename"] for file in result.files] == ["notes.txt", "notes_1.txt"]
+    assert repo_mock.create.await_count == 2
 
 
 def test_list_uploaded_files_reads_from_pg():

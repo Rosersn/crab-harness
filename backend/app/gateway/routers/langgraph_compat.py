@@ -702,6 +702,8 @@ async def stream_run(
                 input_state = {"messages": [HumanMessage(content=human_text)]}
                 stream_context: dict[str, Any] = {
                     "thread_id": str(thread_id),
+                    "user_id": str(ctx.user_id),
+                    "tenant_id": str(ctx.tenant_id),
                 }
                 agent_name = configurable.get("agent_name")
                 if isinstance(agent_name, str) and agent_name:

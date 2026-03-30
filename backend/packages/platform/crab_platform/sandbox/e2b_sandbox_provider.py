@@ -129,7 +129,12 @@ class E2BSandboxProvider(SandboxProvider):
                 cached_id = self._user_to_sandbox.get(user_key)
                 if cached_id:
                     return cached_id
-            return self._run_async(self._get_sandbox_id_from_pg(thread_id))
+            coro = self._get_sandbox_id_from_pg(thread_id)
+            try:
+                return self._run_async(coro)
+            except Exception:
+                coro.close()
+                raise
         except Exception:
             logger.debug("Failed to look up E2B sandbox for thread %s", thread_id, exc_info=True)
             return None
@@ -242,9 +247,11 @@ class E2BSandboxProvider(SandboxProvider):
         self._evict_from_cache(sandbox_id)
 
         # Update PG last_seen_at (best-effort)
+        coro = self._touch_sandbox_last_seen(sandbox_id)
         try:
-            self._run_async(self._touch_sandbox_last_seen(sandbox_id))
+            self._run_async(coro)
         except Exception:
+            coro.close()
             logger.debug("Failed to update last_seen_at for %s", sandbox_id, exc_info=True)
 
     # -- Extended lifecycle -------------------------------------------------
@@ -274,9 +281,11 @@ class E2BSandboxProvider(SandboxProvider):
                 logger.debug("Could not connect/kill E2B sandbox %s", sandbox_id, exc_info=True)
 
         # Clear PG
+        coro = self._clear_pg_sandbox(sandbox_id)
         try:
-            self._run_async(self._clear_pg_sandbox(sandbox_id))
+            self._run_async(coro)
         except Exception:
+            coro.close()
             logger.debug("Failed to clear PG for sandbox %s", sandbox_id, exc_info=True)
 
     def shutdown(self) -> None:

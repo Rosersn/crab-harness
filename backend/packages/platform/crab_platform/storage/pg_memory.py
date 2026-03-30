@@ -62,15 +62,16 @@ class PGMemoryStorage(MemoryStorage):
     ) -> PGMemoryStorage:
         """Create an instance for the memory updater background thread.
 
-        Uses ``get_session_factory()`` to create fresh sessions per-operation,
-        avoiding event-loop lifetime issues.
+        Uses ``create_isolated_session_factory()`` with NullPool to avoid
+        sharing loop-bound asyncpg connections with the main FastAPI loop.
         """
-        from crab_platform.db import get_session_factory
+        from crab_platform.db import create_isolated_session_factory
 
+        _engine, factory = create_isolated_session_factory()
         return cls(
             user_id=user_id,
             tenant_id=tenant_id,
-            session_factory=get_session_factory(),
+            session_factory=factory,
         )
 
     # ------------------------------------------------------------------

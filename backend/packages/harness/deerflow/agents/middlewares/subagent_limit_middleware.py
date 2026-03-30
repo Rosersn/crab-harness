@@ -7,6 +7,7 @@ from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langgraph.runtime import Runtime
 
+from deerflow.agents.thread_state import AgentRuntimeContext
 from deerflow.subagents.executor import MAX_CONCURRENT_SUBAGENTS
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,9 @@ class SubagentLimitMiddleware(AgentMiddleware[AgentState]):
         return {"messages": [updated_msg]}
 
     @override
-    def after_model(self, state: AgentState, runtime: Runtime) -> dict | None:
+    def after_model(self, state: AgentState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         return self._truncate_task_calls(state)
 
     @override
-    async def aafter_model(self, state: AgentState, runtime: Runtime) -> dict | None:
+    async def aafter_model(self, state: AgentState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         return self._truncate_task_calls(state)

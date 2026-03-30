@@ -29,6 +29,9 @@ def get_object_storage() -> ObjectStorage:
         if backend == "bos":
             from crab_platform.storage.bos import BOSObjectStorage
             _instance = BOSObjectStorage()
+        elif backend == "oss":
+            from crab_platform.storage.oss import OSSObjectStorage
+            _instance = OSSObjectStorage()
         else:
             _instance = LocalObjectStorage()
 

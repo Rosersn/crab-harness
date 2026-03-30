@@ -28,6 +28,18 @@ _LOCAL_BASH_SYSTEM_PATH_PREFIXES = (
 _DEFAULT_SKILLS_CONTAINER_PATH = "/mnt/skills"
 _ACP_WORKSPACE_VIRTUAL_PATH = "/mnt/acp-workspace"
 
+# Control characters (excluding common whitespace) that signal binary content.
+_BINARY_CHARS = set(range(0, 8)) | set(range(14, 32))
+
+
+def _is_binary_content(text: str, sample_size: int = 4096) -> bool:
+    """Heuristic: check if a string looks like binary data."""
+    sample = text[:sample_size]
+    if not sample:
+        return False
+    binary_count = sum(1 for c in sample if ord(c) in _BINARY_CHARS)
+    return (binary_count / len(sample)) > 0.05
+
 
 def _get_skills_container_path() -> str:
     """Get the skills container path from config, with fallback to default.
@@ -796,6 +808,19 @@ def read_file_tool(
         content = sandbox.read_file(path)
         if not content:
             return "(empty)"
+        # Detect binary content: if it contains null bytes or has a high ratio of
+        # non-text characters, treat it as binary and return a descriptive message
+        # instead of raw content (which would be useless to the agent and can cause
+        # issues when persisted to PostgreSQL).
+        if "\x00" in content or _is_binary_content(content):
+            import mimetypes
+            mime, _ = mimetypes.guess_type(requested_path)
+            size_desc = f"{len(content)} chars"
+            mime_desc = f", {mime}" if mime else ""
+            hint = ""
+            if mime and mime.startswith("image/"):
+                hint = " Use the view_image tool to examine this image."
+            return f"[Binary file: {posixpath.basename(requested_path)} ({size_desc}{mime_desc}) — cannot display as text.]{hint}"
         if start_line is not None and end_line is not None:
             content = "\n".join(content.splitlines()[start_line - 1 : end_line])
         return content

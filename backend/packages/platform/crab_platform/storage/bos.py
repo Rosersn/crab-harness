@@ -58,6 +58,7 @@ class BOSObjectStorage:
         await self._run_sync(
             self._client.put_object,
             self._bucket, key, data, content_length,
+            None,  # content_md5 — let SDK compute
             content_type,
         )
         return key

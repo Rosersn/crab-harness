@@ -116,6 +116,27 @@ class RunStreamRequest(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
+def _build_input_human_message(input_messages: list[dict[str, Any]]) -> Any:
+    """Build the first inbound HumanMessage while preserving frontend metadata."""
+    from langchain_core.messages import HumanMessage
+
+    if not input_messages:
+        return HumanMessage(content="")
+
+    first_message = input_messages[0]
+    raw_content = first_message.get("content", "")
+    if isinstance(raw_content, (str, list)):
+        content: str | list[Any] = raw_content
+    else:
+        content = str(raw_content)
+
+    additional_kwargs = first_message.get("additional_kwargs")
+    if not isinstance(additional_kwargs, dict):
+        additional_kwargs = {}
+
+    return HumanMessage(content=content, additional_kwargs=additional_kwargs)
+
+
 async def _load_state_from_checkpointer(thread_id: uuid.UUID) -> dict[str, Any] | None:
     """Try to load thread state from the LangGraph checkpointer.
 
@@ -665,9 +686,6 @@ async def stream_run(
 
         heartbeat_task = asyncio.create_task(_heartbeat_loop())
         try:
-            # Lazily import agent construction to avoid circular imports at module level
-            from langchain_core.messages import HumanMessage
-
             from crab_platform.agent.factory import make_tenant_agent
             from crab_platform.db import get_session_factory
             from deerflow.agents.checkpointer import make_checkpointer
@@ -683,23 +701,8 @@ async def stream_run(
                         recursion_limit=body.config.get("recursion_limit", 100) if body.config else 100,
                     )
 
-                # Build input state
-                human_text = ""
-                if input_messages:
-                    content = input_messages[0].get("content", "")
-                    if isinstance(content, list):
-                        # Extract text from content blocks
-                        parts = []
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                parts.append(block.get("text", ""))
-                            elif isinstance(block, str):
-                                parts.append(block)
-                        human_text = "\n".join(parts)
-                    else:
-                        human_text = str(content)
-
-                input_state = {"messages": [HumanMessage(content=human_text)]}
+                # Build input state while preserving message metadata such as uploads.
+                input_state = {"messages": [_build_input_human_message(input_messages)]}
                 stream_context: dict[str, Any] = {
                     "thread_id": str(thread_id),
                     "user_id": str(ctx.user_id),
@@ -1164,11 +1167,15 @@ def _serialize_langchain_message(msg) -> dict[str, Any]:
             "id": getattr(msg, "id", None),
         }
     if isinstance(msg, HumanMessage):
-        return {
+        payload = {
             "type": "human",
             "content": msg.content,
             "id": getattr(msg, "id", None),
         }
+        files = msg.additional_kwargs.get("files")
+        if isinstance(files, list) and files:
+            payload["additional_kwargs"] = {"files": files}
+        return payload
     if isinstance(msg, SystemMessage):
         return {
             "type": "system",

@@ -56,12 +56,16 @@ class PlatformConfig(BaseSettings):
         return self
 
     # Object storage
-    storage_backend: str = "local"  # "local" or "bos"
+    storage_backend: str = "local"  # "local", "bos", or "oss"
     storage_root: str | None = None  # Local storage root (local backend only)
     bos_access_key: str | None = None
     bos_secret_key: str | None = None
     bos_endpoint: str | None = None
     bos_bucket: str | None = None
+    oss_access_key_id: str | None = None
+    oss_access_key_secret: str | None = None
+    oss_endpoint: str | None = None
+    oss_bucket: str | None = None
 
 
 @lru_cache

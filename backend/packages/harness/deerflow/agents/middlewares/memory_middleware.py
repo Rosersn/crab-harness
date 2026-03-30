@@ -8,6 +8,7 @@ from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langgraph.runtime import Runtime
 
+from deerflow.agents.thread_state import AgentRuntimeContext
 from deerflow.agents.memory.queue import get_memory_queue
 from deerflow.config.memory_config import get_memory_config
 
@@ -108,7 +109,7 @@ class MemoryMiddleware(AgentMiddleware[MemoryMiddlewareState]):
         self._agent_name = agent_name
 
     @override
-    def after_agent(self, state: MemoryMiddlewareState, runtime: Runtime) -> dict | None:
+    def after_agent(self, state: MemoryMiddlewareState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         """Queue conversation for memory update after agent completes.
 
         Args:

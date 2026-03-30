@@ -363,6 +363,56 @@ class TestLangGraphCompatHelpers:
         assert payload["content"] == "final answer"
         assert payload["additional_kwargs"]["reasoning_content"] == "step by step"
 
+    def test_serialize_langchain_message_preserves_human_uploaded_files(self):
+        from app.gateway.routers.langgraph_compat import _serialize_langchain_message
+        from langchain_core.messages import HumanMessage
+
+        payload = _serialize_langchain_message(
+            HumanMessage(
+                content="see attachment",
+                id="human-1",
+                additional_kwargs={
+                    "files": [
+                        {
+                            "filename": "image.png",
+                            "size": 123,
+                            "path": "/mnt/user-data/uploads/image.png",
+                            "status": "uploaded",
+                        }
+                    ]
+                },
+            )
+        )
+
+        assert payload["type"] == "human"
+        assert payload["content"] == "see attachment"
+        assert payload["additional_kwargs"]["files"][0]["filename"] == "image.png"
+
+    def test_build_input_human_message_preserves_additional_kwargs(self):
+        from app.gateway.routers.langgraph_compat import _build_input_human_message
+
+        message = _build_input_human_message(
+            [
+                {
+                    "type": "human",
+                    "content": [{"type": "text", "text": "hello"}],
+                    "additional_kwargs": {
+                        "files": [
+                            {
+                                "filename": "image.png",
+                                "size": 123,
+                                "path": "/mnt/user-data/uploads/image.png",
+                                "status": "uploaded",
+                            }
+                        ]
+                    },
+                }
+            ]
+        )
+
+        assert message.content == [{"type": "text", "text": "hello"}]
+        assert message.additional_kwargs["files"][0]["filename"] == "image.png"
+
     def test_run_content_location_matches_sdk_expectation(self):
         from app.gateway.routers.langgraph_compat import _run_content_location
 

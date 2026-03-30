@@ -15,6 +15,8 @@ from langchain.agents.middleware.todo import PlanningState, Todo
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.runtime import Runtime
 
+from deerflow.agents.thread_state import AgentRuntimeContext
+
 
 def _todos_in_messages(messages: list[Any]) -> bool:
     """Return True if any AIMessage in *messages* contains a write_todos tool call."""
@@ -57,7 +59,7 @@ class TodoMiddleware(TodoListMiddleware):
     def before_model(
         self,
         state: PlanningState,
-        runtime: Runtime,  # noqa: ARG002
+        runtime: Runtime[AgentRuntimeContext],  # noqa: ARG002
     ) -> dict[str, Any] | None:
         """Inject a todo-list reminder when write_todos has left the context window."""
         todos: list[Todo] = state.get("todos") or []  # type: ignore[assignment]
@@ -94,7 +96,25 @@ class TodoMiddleware(TodoListMiddleware):
     async def abefore_model(
         self,
         state: PlanningState,
-        runtime: Runtime,
+        runtime: Runtime[AgentRuntimeContext],
     ) -> dict[str, Any] | None:
         """Async version of before_model."""
         return self.before_model(state, runtime)
+
+    @override
+    def after_model(
+        self,
+        state: PlanningState,
+        runtime: Runtime[AgentRuntimeContext],
+    ) -> dict[str, Any] | None:
+        """Delegate todo-tool validation with a typed runtime annotation."""
+        return super().after_model(state, runtime)
+
+    @override
+    async def aafter_model(
+        self,
+        state: PlanningState,
+        runtime: Runtime[AgentRuntimeContext],
+    ) -> dict[str, Any] | None:
+        """Async delegate that preserves the typed runtime annotation."""
+        return await super().aafter_model(state, runtime)

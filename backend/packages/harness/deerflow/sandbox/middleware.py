@@ -5,7 +5,7 @@ from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langgraph.runtime import Runtime
 
-from deerflow.agents.thread_state import SandboxState, ThreadDataState
+from deerflow.agents.thread_state import AgentRuntimeContext, SandboxState, ThreadDataState
 from deerflow.sandbox import get_sandbox_provider
 
 logger = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
         return sandbox_id
 
     @override
-    def before_agent(self, state: SandboxMiddlewareState, runtime: Runtime) -> dict | None:
+    def before_agent(self, state: SandboxMiddlewareState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         # Skip acquisition if lazy_init is enabled
         if self._lazy_init:
             return super().before_agent(state, runtime)
@@ -65,7 +65,7 @@ class SandboxMiddleware(AgentMiddleware[SandboxMiddlewareState]):
         return super().before_agent(state, runtime)
 
     @override
-    def after_agent(self, state: SandboxMiddlewareState, runtime: Runtime) -> dict | None:
+    def after_agent(self, state: SandboxMiddlewareState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         sandbox = state.get("sandbox")
         if sandbox is not None:
             sandbox_id = sandbox["sandbox_id"]

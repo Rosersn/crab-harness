@@ -7,6 +7,8 @@ from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langgraph.runtime import Runtime
 
+from deerflow.agents.thread_state import AgentRuntimeContext
+
 logger = logging.getLogger(__name__)
 
 
@@ -14,11 +16,11 @@ class TokenUsageMiddleware(AgentMiddleware):
     """Logs token usage from model response usage_metadata."""
 
     @override
-    def after_model(self, state: AgentState, runtime: Runtime) -> dict | None:
+    def after_model(self, state: AgentState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         return self._log_usage(state)
 
     @override
-    async def aafter_model(self, state: AgentState, runtime: Runtime) -> dict | None:
+    async def aafter_model(self, state: AgentState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         return self._log_usage(state)
 
     def _log_usage(self, state: AgentState) -> None:

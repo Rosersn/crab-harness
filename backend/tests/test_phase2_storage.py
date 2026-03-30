@@ -350,3 +350,110 @@ class TestStorageFactory:
         assert isinstance(storage, LocalObjectStorage)
 
         storage_mod._instance = None
+
+    def test_oss_backend(self):
+        """OSS backend returns OSSObjectStorage instance."""
+        from crab_platform.storage import get_object_storage
+        import crab_platform.storage as storage_mod
+
+        storage_mod._instance = None
+
+        with patch("crab_platform.config.platform_config.get_platform_config") as mock_config, \
+             patch("crab_platform.storage.oss._get_oss_bucket") as mock_bucket:
+            cfg = MagicMock()
+            cfg.storage_backend = "oss"
+            cfg.oss_access_key_id = "test-key"
+            cfg.oss_access_key_secret = "test-secret"
+            cfg.oss_endpoint = "https://oss-cn-hangzhou.aliyuncs.com"
+            cfg.oss_bucket = "test-bucket"
+            mock_config.return_value = cfg
+            mock_bucket.return_value = MagicMock()
+
+            storage = get_object_storage()
+
+        from crab_platform.storage.oss import OSSObjectStorage
+
+        assert isinstance(storage, OSSObjectStorage)
+
+        storage_mod._instance = None
+
+
+# ---------------------------------------------------------------------------
+# OSSObjectStorage (mock-based)
+# ---------------------------------------------------------------------------
+
+
+class TestOSSObjectStorage:
+    """Tests for the Alibaba Cloud OSS ObjectStorage implementation (mocked SDK)."""
+
+    def _make_storage(self):
+        from crab_platform.storage.oss import OSSObjectStorage
+
+        with patch("crab_platform.storage.oss._get_oss_bucket") as mock_bucket, \
+             patch("crab_platform.config.platform_config.get_platform_config") as mock_config:
+            cfg = MagicMock()
+            cfg.oss_bucket = "test-bucket"
+            mock_config.return_value = cfg
+            bucket_mock = MagicMock()
+            mock_bucket.return_value = bucket_mock
+            storage = OSSObjectStorage()
+        return storage, bucket_mock
+
+    def test_put_bytes(self):
+        storage, bucket_mock = self._make_storage()
+        asyncio.run(storage.put("key.txt", b"hello", "text/plain"))
+        bucket_mock.put_object.assert_called_once()
+        args = bucket_mock.put_object.call_args
+        assert args[0][0] == "key.txt"
+        assert args[0][2] == {"Content-Type": "text/plain"}
+
+    def test_put_binary_io(self):
+        storage, bucket_mock = self._make_storage()
+        asyncio.run(storage.put("key.bin", BytesIO(b"data")))
+        bucket_mock.put_object.assert_called_once()
+
+    def test_put_returns_key(self):
+        storage, bucket_mock = self._make_storage()
+        result = asyncio.run(storage.put("my/key.txt", b"data"))
+        assert result == "my/key.txt"
+
+    def test_get(self):
+        storage, bucket_mock = self._make_storage()
+        stream_mock = MagicMock()
+        stream_mock.read.return_value = b"content"
+        bucket_mock.get_object.return_value = stream_mock
+        data = asyncio.run(storage.get("key.txt"))
+        assert data == b"content"
+        bucket_mock.get_object.assert_called_once_with("key.txt")
+
+    def test_delete(self):
+        storage, bucket_mock = self._make_storage()
+        asyncio.run(storage.delete("key.txt"))
+        bucket_mock.delete_object.assert_called_once_with("key.txt")
+
+    def test_delete_missing_no_error(self):
+        storage, bucket_mock = self._make_storage()
+        bucket_mock.delete_object.side_effect = Exception("not found")
+        asyncio.run(storage.delete("missing.txt"))  # should not raise
+
+    def test_generate_presigned_url(self):
+        storage, bucket_mock = self._make_storage()
+        bucket_mock.sign_url.return_value = "https://bucket.oss.example.com/key?signed"
+        url = asyncio.run(storage.generate_presigned_url("key.txt", 7200))
+        assert "signed" in url
+        bucket_mock.sign_url.assert_called_once_with("GET", "key.txt", 7200)
+
+    def test_exists_true(self):
+        storage, bucket_mock = self._make_storage()
+        bucket_mock.object_exists.return_value = True
+        assert asyncio.run(storage.exists("key.txt")) is True
+
+    def test_exists_false(self):
+        storage, bucket_mock = self._make_storage()
+        bucket_mock.object_exists.return_value = False
+        assert asyncio.run(storage.exists("missing.txt")) is False
+
+    def test_exists_exception_returns_false(self):
+        storage, bucket_mock = self._make_storage()
+        bucket_mock.object_exists.side_effect = Exception("network error")
+        assert asyncio.run(storage.exists("key.txt")) is False

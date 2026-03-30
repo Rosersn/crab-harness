@@ -7,6 +7,7 @@ from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langgraph.runtime import Runtime
 
+from deerflow.agents.thread_state import AgentRuntimeContext
 from deerflow.config.title_config import get_title_config
 from deerflow.models import create_chat_model
 
@@ -141,9 +142,9 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return {"title": title}
 
     @override
-    def after_model(self, state: TitleMiddlewareState, runtime: Runtime) -> dict | None:
+    def after_model(self, state: TitleMiddlewareState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         return self._generate_title_result(state)
 
     @override
-    async def aafter_model(self, state: TitleMiddlewareState, runtime: Runtime) -> dict | None:
+    async def aafter_model(self, state: TitleMiddlewareState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         return await self._agenerate_title_result(state)

@@ -228,6 +228,9 @@ async def upload_files(
         raise HTTPException(status_code=400, detail="Invalid thread_id")
 
     await _ensure_owned_thread_exists(tid, user, db)
+    # Commit so the thread row is visible to other connections (e.g. E2BSandboxProvider
+    # which uses its own session to resolve user_id from thread_id).
+    await db.commit()
 
     storage = get_object_storage()
     upload_repo = UploadRepo(db)

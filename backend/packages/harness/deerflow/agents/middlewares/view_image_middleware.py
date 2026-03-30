@@ -8,7 +8,7 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.runtime import Runtime
 
-from deerflow.agents.thread_state import ViewedImageData
+from deerflow.agents.thread_state import AgentRuntimeContext, ViewedImageData
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +191,7 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
         return {"messages": [human_msg]}
 
     @override
-    def before_model(self, state: ViewImageMiddlewareState, runtime: Runtime) -> dict | None:
+    def before_model(self, state: ViewImageMiddlewareState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         """Inject image details message before LLM call if view_image tools have completed (sync version).
 
         This runs before each LLM call, checking if the previous turn included view_image
@@ -208,7 +208,7 @@ class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):
         return self._inject_image_message(state)
 
     @override
-    async def abefore_model(self, state: ViewImageMiddlewareState, runtime: Runtime) -> dict | None:
+    async def abefore_model(self, state: ViewImageMiddlewareState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         """Inject image details message before LLM call if view_image tools have completed (async version).
 
         This runs before each LLM call, checking if the previous turn included view_image

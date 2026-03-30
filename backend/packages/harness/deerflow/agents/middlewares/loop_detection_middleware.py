@@ -24,6 +24,8 @@ from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import HumanMessage
 from langgraph.runtime import Runtime
 
+from deerflow.agents.thread_state import AgentRuntimeContext
+
 logger = logging.getLogger(__name__)
 
 # Defaults — can be overridden via constructor
@@ -97,7 +99,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         self._history: OrderedDict[str, list[str]] = OrderedDict()
         self._warned: dict[str, set[str]] = defaultdict(set)
 
-    def _get_thread_id(self, runtime: Runtime) -> str:
+    def _get_thread_id(self, runtime: Runtime[AgentRuntimeContext]) -> str:
         """Extract thread_id from runtime context for per-thread tracking."""
         thread_id = runtime.context.get("thread_id") if runtime.context else None
         if thread_id:
@@ -114,7 +116,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             self._warned.pop(evicted_id, None)
             logger.debug("Evicted loop tracking for thread %s (LRU)", evicted_id)
 
-    def _track_and_check(self, state: AgentState, runtime: Runtime) -> tuple[str | None, bool]:
+    def _track_and_check(self, state: AgentState, runtime: Runtime[AgentRuntimeContext]) -> tuple[str | None, bool]:
         """Track tool calls and check for loops.
 
         Returns:
@@ -182,7 +184,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
 
         return None, False
 
-    def _apply(self, state: AgentState, runtime: Runtime) -> dict | None:
+    def _apply(self, state: AgentState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         warning, hard_stop = self._track_and_check(state, runtime)
 
         if hard_stop:
@@ -209,11 +211,11 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         return None
 
     @override
-    def after_model(self, state: AgentState, runtime: Runtime) -> dict | None:
+    def after_model(self, state: AgentState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         return self._apply(state, runtime)
 
     @override
-    async def aafter_model(self, state: AgentState, runtime: Runtime) -> dict | None:
+    async def aafter_model(self, state: AgentState, runtime: Runtime[AgentRuntimeContext]) -> dict | None:
         return self._apply(state, runtime)
 
     def reset(self, thread_id: str | None = None) -> None:

@@ -238,7 +238,7 @@ All `/api/*` routes proxied through nginx on port 2026 → Gateway on port 8001.
 - `E2BSandbox` - Wraps E2B SDK `Sandbox` instance, implements harness `Sandbox` ABC (sync methods)
 - `E2BSandboxProvider` - PG-backed lifecycle management: acquire (check cache → PG → connect/create), get, release (keepAlive timeout, no kill), terminate (kill + clear PG), shutdown
 - Uses `asyncio.Runner` (Python 3.12+) to bridge sync provider methods with async PG access
-- Thread ↔ sandbox_id mapping persisted in PG `threads` table (`sandbox_id`, `sandbox_status`, `sandbox_last_seen_at`)
+- User ↔ sandbox_id mapping persisted in PG `users` table (`sandbox_id`, `sandbox_status`, `sandbox_last_seen_at`)
 - `release()` sets E2B keepAlive timeout (default 30min), does NOT kill — matches `SandboxMiddleware.after_agent` semantics
 - `E2B Sandbox.connect()` auto-resumes paused instances
 - `file_injector.py` - Downloads uploaded files from BOS and writes into E2B sandbox at `/mnt/user-data/uploads/`

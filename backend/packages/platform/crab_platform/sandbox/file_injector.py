@@ -109,6 +109,63 @@ async def inject_thread_uploads(
     return injected
 
 
+async def inject_user_uploads(
+    session_factory: async_sessionmaker[AsyncSession],
+    user_id: uuid.UUID,
+    e2b_sandbox: E2BSdkSandbox,
+    path_mapping: E2BPathMapping | None = None,
+) -> int:
+    """Download all user uploads from BOS and write them into an E2B sandbox."""
+    from crab_platform.db.repos.upload_repo import UploadRepo
+    from crab_platform.storage import get_object_storage
+
+    injected = 0
+    path_mapping = path_mapping or E2BPathMapping()
+
+    async with session_factory() as db:
+        uploads = await UploadRepo(db).list_for_user(user_id)
+
+    if not uploads:
+        logger.debug("No uploads for user %s, skipping injection", user_id)
+        return 0
+
+    storage = get_object_storage()
+
+    for upload in uploads:
+        try:
+            content = await storage.get(upload.bos_key)
+            virtual_path = f"{path_mapping.virtual_user_data_root}/uploads/{upload.filename}"
+            await asyncio.to_thread(
+                _sandbox_write,
+                e2b_sandbox,
+                path_mapping.map_path(virtual_path),
+                content,
+            )
+            injected += 1
+            logger.debug("Injected %s into E2B sandbox", virtual_path)
+
+            if upload.markdown_bos_key:
+                try:
+                    md_content = await storage.get(upload.markdown_bos_key)
+                    md_name = f"{upload.filename}.extracted.md"
+                    md_path = f"{path_mapping.virtual_user_data_root}/uploads/{md_name}"
+                    await asyncio.to_thread(
+                        _sandbox_write,
+                        e2b_sandbox,
+                        path_mapping.map_path(md_path),
+                        md_content,
+                    )
+                    injected += 1
+                    logger.debug("Injected markdown %s into E2B sandbox", md_path)
+                except Exception:
+                    logger.warning("Failed to inject markdown for %s", upload.filename, exc_info=True)
+        except Exception:
+            logger.warning("Failed to inject %s into E2B sandbox", upload.filename, exc_info=True)
+
+    logger.info("Injected %d files into E2B sandbox for user %s", injected, user_id)
+    return injected
+
+
 async def inject_user_custom_skills(
     session_factory: async_sessionmaker[AsyncSession],
     user_id: uuid.UUID,

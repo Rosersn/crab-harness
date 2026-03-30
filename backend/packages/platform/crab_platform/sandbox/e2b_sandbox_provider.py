@@ -11,10 +11,10 @@ Design decisions:
   E2B auto-pauses after inactivity.  This matches the harness
   ``SandboxMiddleware.after_agent`` semantics.
 - ``connect()`` auto-resumes paused E2B instances — no explicit resume needed.
-- Thread → sandbox mapping is persisted in PG ``threads`` table, not in-memory
+- User → sandbox mapping is persisted in PG ``users`` table, not in-memory
   (survives Gateway restarts).
-- Per-thread locks in ``acquire()`` prevent concurrent sandbox creation for the
-  same thread_id.
+- Per-user locks in ``acquire()`` prevent concurrent sandbox creation for the
+  same user across multiple threads.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ _DEFAULT_KEEP_ALIVE_SECONDS = 1800  # 30 minutes
 
 
 class E2BSandboxProvider(SandboxProvider):
-    """E2B cloud sandbox provider with PG-backed thread ↔ sandbox mapping.
+    """E2B cloud sandbox provider with PG-backed user ↔ sandbox mapping.
 
     Configured via ``config.yaml``:
 
@@ -58,15 +58,18 @@ class E2BSandboxProvider(SandboxProvider):
           e2b_template: "base"       # optional E2B template
     """
 
+    sandbox_scope = "user"
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._async_lock = threading.Lock()  # serialises all _run_async calls
-        self._acquire_locks: dict[str, threading.Lock] = {}  # per-thread_id locks
+        self._acquire_locks: dict[str, threading.Lock] = {}  # per-user_id locks
         self._acquire_locks_guard = threading.Lock()  # protects _acquire_locks dict
         # In-memory caches (process-scoped, not durable)
         self._sandboxes: dict[str, E2BSandbox] = {}  # sandbox_id → E2BSandbox
         self._e2b_instances: dict[str, E2BSdkSandbox] = {}  # sandbox_id → raw E2B
-        self._thread_to_sandbox: dict[str, str] = {}  # thread_id → sandbox_id
+        self._user_to_sandbox: dict[str, str] = {}  # user_id → sandbox_id
+        self._sandbox_to_user: dict[str, str] = {}  # sandbox_id → user_id
 
         self._runner = asyncio.Runner()
         self._session_engine: AsyncEngine | None = None
@@ -104,39 +107,66 @@ class E2BSandboxProvider(SandboxProvider):
 
     # -- SandboxProvider ABC ------------------------------------------------
 
-    def _get_thread_lock(self, thread_id: str) -> threading.Lock:
-        """Return (or create) a per-thread_id lock to serialise acquire() calls."""
+    def _get_owner_lock(self, user_id: str) -> threading.Lock:
+        """Return (or create) a per-user_id lock to serialise acquire() calls."""
         with self._acquire_locks_guard:
-            lock = self._acquire_locks.get(thread_id)
+            lock = self._acquire_locks.get(user_id)
             if lock is None:
                 lock = threading.Lock()
-                self._acquire_locks[thread_id] = lock
+                self._acquire_locks[user_id] = lock
             return lock
 
+    def lookup_sandbox_id(self, thread_id: str | None = None) -> str | None:
+        """Return the persisted sandbox_id for a thread's owning user without creating one."""
+        if thread_id is None:
+            return None
+        try:
+            user_id = self._run_async(self._get_user_id_for_thread(thread_id))
+            if user_id is None:
+                return None
+            user_key = str(user_id)
+            with self._lock:
+                cached_id = self._user_to_sandbox.get(user_key)
+                if cached_id:
+                    return cached_id
+            return self._run_async(self._get_sandbox_id_from_pg(thread_id))
+        except Exception:
+            logger.debug("Failed to look up E2B sandbox for thread %s", thread_id, exc_info=True)
+            return None
+
     def acquire(self, thread_id: str | None = None) -> str:
-        """Acquire an E2B sandbox for the given thread.
+        """Acquire an E2B sandbox for the given thread's owning user.
 
         1. Check in-memory cache.
         2. Check PG for an existing sandbox_id → try ``connect()`` (auto-resumes).
         3. If no existing sandbox or connect fails → create a new one.
 
-        Per-thread locking prevents two concurrent requests for the same
-        ``thread_id`` from each creating a new sandbox (which would orphan one).
+        Per-user locking prevents two concurrent requests across different threads
+        owned by the same user from each creating a new sandbox.
         """
         if thread_id is None:
             return self._create_anonymous_sandbox()
 
-        thread_lock = self._get_thread_lock(thread_id)
-        with thread_lock:
-            return self._acquire_for_thread(thread_id)
+        user_id = self._run_async(self._get_user_id_for_thread(thread_id))
+        if user_id is None:
+            raise RuntimeError(f"Could not resolve user for thread {thread_id}")
 
-    def _acquire_for_thread(self, thread_id: str) -> str:
-        """Actual acquire logic, called under per-thread lock."""
+        owner_lock = self._get_owner_lock(str(user_id))
+        with owner_lock:
+            return self._acquire_for_user(thread_id, str(user_id))
+
+    def _acquire_for_user(self, thread_id: str, user_id: str) -> str:
+        """Actual acquire logic, called under per-user lock."""
         # 1. In-memory cache (fast path — same process, same turn or subsequent)
         with self._lock:
-            cached_id = self._thread_to_sandbox.get(thread_id)
+            cached_id = self._user_to_sandbox.get(user_id)
             if cached_id and cached_id in self._sandboxes:
-                logger.info("Reusing in-memory E2B sandbox %s for thread %s", cached_id, thread_id)
+                logger.info(
+                    "Reusing in-memory E2B sandbox %s for user %s (thread %s)",
+                    cached_id,
+                    user_id,
+                    thread_id,
+                )
                 return cached_id
 
         # 2. Check PG for existing sandbox
@@ -146,25 +176,28 @@ class E2BSandboxProvider(SandboxProvider):
             # Check if we already have it in-memory (race with another thread)
             with self._lock:
                 if existing_sandbox_id in self._sandboxes:
-                    self._thread_to_sandbox[thread_id] = existing_sandbox_id
+                    self._user_to_sandbox[user_id] = existing_sandbox_id
+                    self._sandbox_to_user[existing_sandbox_id] = user_id
                     return existing_sandbox_id
 
             # Try to connect (auto-resumes paused instances)
             try:
                 e2b_sbx = self._connect_sandbox(existing_sandbox_id)
-                wrapped = E2BSandbox(
-                    id=existing_sandbox_id,
-                    e2b_sandbox=e2b_sbx,
-                    path_mapping=self._path_mapping,
-                )
+                wrapped = self._wrap_sandbox(existing_sandbox_id, e2b_sbx)
                 with self._lock:
                     self._sandboxes[existing_sandbox_id] = wrapped
                     self._e2b_instances[existing_sandbox_id] = e2b_sbx
-                    self._thread_to_sandbox[thread_id] = existing_sandbox_id
+                    self._user_to_sandbox[user_id] = existing_sandbox_id
+                    self._sandbox_to_user[existing_sandbox_id] = user_id
                 self._run_async(
                     self._update_pg_sandbox(thread_id, existing_sandbox_id, "active")
                 )
-                logger.info("Reconnected to E2B sandbox %s for thread %s", existing_sandbox_id, thread_id)
+                logger.info(
+                    "Reconnected to E2B sandbox %s for user %s (thread %s)",
+                    existing_sandbox_id,
+                    user_id,
+                    thread_id,
+                )
                 return existing_sandbox_id
             except Exception:
                 logger.info(
@@ -174,7 +207,7 @@ class E2BSandboxProvider(SandboxProvider):
                 )
 
         # 3. Create new sandbox
-        return self._create_and_register(thread_id)
+        return self._create_and_register(thread_id, uuid.UUID(user_id))
 
     def get(self, sandbox_id: str) -> Sandbox | None:
         with self._lock:
@@ -255,7 +288,8 @@ class E2BSandboxProvider(SandboxProvider):
             instances = list(self._e2b_instances.items())
             self._sandboxes.clear()
             self._e2b_instances.clear()
-            self._thread_to_sandbox.clear()
+            self._user_to_sandbox.clear()
+            self._sandbox_to_user.clear()
 
         for sandbox_id, e2b_sbx in instances:
             try:
@@ -283,9 +317,9 @@ class E2BSandboxProvider(SandboxProvider):
         with self._lock:
             e2b_sbx = self._e2b_instances.pop(sandbox_id, None)
             self._sandboxes.pop(sandbox_id, None)
-            thread_ids = [tid for tid, sid in self._thread_to_sandbox.items() if sid == sandbox_id]
-            for tid in thread_ids:
-                del self._thread_to_sandbox[tid]
+            user_id = self._sandbox_to_user.pop(sandbox_id, None)
+            if user_id and self._user_to_sandbox.get(user_id) == sandbox_id:
+                del self._user_to_sandbox[user_id]
         return e2b_sbx
 
     def _e2b_api_opts(self) -> dict:
@@ -297,16 +331,32 @@ class E2BSandboxProvider(SandboxProvider):
             opts["api_url"] = self._e2b_api_url
         return opts
 
+    def _wrap_sandbox(self, sandbox_id: str, e2b_sbx: E2BSdkSandbox) -> E2BSandbox:
+        """Wrap a raw E2B SDK sandbox with the harness adapter."""
+        return E2BSandbox(
+            id=sandbox_id,
+            e2b_sandbox=e2b_sbx,
+            path_mapping=self._path_mapping,
+            keep_alive_seconds=self._keep_alive_seconds,
+        )
+
     def _connect_sandbox(self, sandbox_id: str) -> E2BSdkSandbox:
         """Connect to an existing E2B sandbox (auto-resumes paused instances)."""
         from e2b import Sandbox as E2BSdkSandbox
-        return E2BSdkSandbox.connect(sandbox_id, **self._e2b_api_opts())
+        return E2BSdkSandbox.connect(
+            sandbox_id,
+            timeout=self._keep_alive_seconds,
+            **self._e2b_api_opts(),
+        )
 
     def _create_e2b_sandbox(self) -> E2BSdkSandbox:
         """Create a new E2B sandbox via the SDK."""
         from e2b import Sandbox as E2BSdkSandbox
+        from e2b.sandbox.sandbox_api import SandboxLifecycle
 
         kwargs = self._e2b_api_opts()
+        kwargs["timeout"] = self._keep_alive_seconds
+        kwargs["lifecycle"] = SandboxLifecycle(on_timeout="pause", auto_resume=True)
         if self._e2b_template:
             kwargs["template"] = self._e2b_template
 
@@ -317,45 +367,38 @@ class E2BSandboxProvider(SandboxProvider):
         e2b_sbx = self._create_e2b_sandbox()
         sandbox_id = e2b_sbx.sandbox_id
         self._init_sandbox_dirs(e2b_sbx, self._path_mapping)
-        wrapped = E2BSandbox(
-            id=sandbox_id,
-            e2b_sandbox=e2b_sbx,
-            path_mapping=self._path_mapping,
-        )
+        wrapped = self._wrap_sandbox(sandbox_id, e2b_sbx)
         with self._lock:
             self._sandboxes[sandbox_id] = wrapped
             self._e2b_instances[sandbox_id] = e2b_sbx
         logger.info("Created anonymous E2B sandbox %s", sandbox_id)
         return sandbox_id
 
-    def _create_and_register(self, thread_id: str) -> str:
-        """Create a new E2B sandbox, register in PG and inject files."""
+    def _create_and_register(self, thread_id: str, user_id: uuid.UUID) -> str:
+        """Create a new E2B sandbox, register it to the owning user, and inject files."""
         e2b_sbx = self._create_e2b_sandbox()
         sandbox_id = e2b_sbx.sandbox_id
 
         # Initialize the actual E2B working directory structure.
         self._init_sandbox_dirs(e2b_sbx, self._path_mapping)
 
-        wrapped = E2BSandbox(
-            id=sandbox_id,
-            e2b_sandbox=e2b_sbx,
-            path_mapping=self._path_mapping,
-        )
+        wrapped = self._wrap_sandbox(sandbox_id, e2b_sbx)
         with self._lock:
             self._sandboxes[sandbox_id] = wrapped
             self._e2b_instances[sandbox_id] = e2b_sbx
-            self._thread_to_sandbox[thread_id] = sandbox_id
+            self._user_to_sandbox[str(user_id)] = sandbox_id
+            self._sandbox_to_user[sandbox_id] = str(user_id)
 
         # Persist to PG
         self._run_async(self._update_pg_sandbox(thread_id, sandbox_id, "active"))
 
         # Inject uploaded files from BOS
         try:
-            from crab_platform.sandbox.file_injector import inject_thread_uploads
+            from crab_platform.sandbox.file_injector import inject_user_uploads
             count = self._run_async(
-                inject_thread_uploads(
+                inject_user_uploads(
                     self._get_session_factory(),
-                    thread_id,
+                    user_id,
                     e2b_sbx,
                     path_mapping=self._path_mapping,
                 )
@@ -367,30 +410,21 @@ class E2BSandboxProvider(SandboxProvider):
 
         # Inject custom user skill directories so prompt-advertised skills are executable.
         try:
-            from crab_platform.db.repos.thread_repo import ThreadRepo
             from crab_platform.sandbox.file_injector import inject_user_custom_skills
-
-            async def _load_user_id() -> uuid.UUID | None:
-                async with self._get_session_factory()() as db:
-                    thread = await ThreadRepo(db).get(uuid.UUID(thread_id))
-                    return thread.user_id if thread is not None else None
-
-            user_id = self._run_async(_load_user_id())
-            if user_id is not None:
-                skill_count = self._run_async(
-                    inject_user_custom_skills(
-                        self._get_session_factory(),
-                        user_id,
-                        e2b_sbx,
-                        path_mapping=self._path_mapping,
-                    )
+            skill_count = self._run_async(
+                inject_user_custom_skills(
+                    self._get_session_factory(),
+                    user_id,
+                    e2b_sbx,
+                    path_mapping=self._path_mapping,
                 )
-                if skill_count > 0:
-                    logger.info("Injected %d custom skill files into E2B sandbox %s", skill_count, sandbox_id)
+            )
+            if skill_count > 0:
+                logger.info("Injected %d custom skill files into E2B sandbox %s", skill_count, sandbox_id)
         except Exception:
             logger.warning("Failed to inject custom skills into E2B sandbox %s", sandbox_id, exc_info=True)
 
-        logger.info("Created E2B sandbox %s for thread %s", sandbox_id, thread_id)
+        logger.info("Created E2B sandbox %s for user %s (thread %s)", sandbox_id, user_id, thread_id)
         return sandbox_id
 
     @staticmethod
@@ -410,8 +444,8 @@ class E2BSandboxProvider(SandboxProvider):
 
     # -- PG helpers (async, called via _run_async) --------------------------
 
-    async def _get_sandbox_id_from_pg(self, thread_id: str) -> str | None:
-        """Look up the sandbox_id for a thread from PG."""
+    async def _get_user_id_for_thread(self, thread_id: str) -> uuid.UUID | None:
+        """Resolve the owning user_id for a thread."""
         from crab_platform.db.models import Thread
 
         factory = self._get_session_factory()
@@ -419,8 +453,24 @@ class E2BSandboxProvider(SandboxProvider):
 
         async with factory() as db:
             result = await db.execute(
-                select(Thread.sandbox_id, Thread.sandbox_status)
-                .where(Thread.id == tid)
+                select(Thread.user_id).where(Thread.id == tid)
+            )
+            return result.scalar_one_or_none()
+
+    async def _get_sandbox_id_from_pg(self, thread_id: str) -> str | None:
+        """Look up the sandbox_id for a thread's owning user from PG."""
+        from crab_platform.db.models import User
+
+        user_id = await self._get_user_id_for_thread(thread_id)
+        if user_id is None:
+            return None
+
+        factory = self._get_session_factory()
+
+        async with factory() as db:
+            result = await db.execute(
+                select(User.sandbox_id, User.sandbox_status)
+                .where(User.id == user_id)
             )
             row = result.one_or_none()
             if row is None:
@@ -433,16 +483,19 @@ class E2BSandboxProvider(SandboxProvider):
     async def _update_pg_sandbox(
         self, thread_id: str, sandbox_id: str, status: str
     ) -> None:
-        """Update the sandbox fields on the thread row in PG."""
-        from crab_platform.db.models import Thread
+        """Update the sandbox fields on the owning user row in PG."""
+        from crab_platform.db.models import User
+
+        user_id = await self._get_user_id_for_thread(thread_id)
+        if user_id is None:
+            return
 
         factory = self._get_session_factory()
-        tid = uuid.UUID(thread_id)
 
         async with factory() as db:
             await db.execute(
-                update(Thread)
-                .where(Thread.id == tid)
+                update(User)
+                .where(User.id == user_id)
                 .values(
                     sandbox_id=sandbox_id,
                     sandbox_status=status,
@@ -452,29 +505,29 @@ class E2BSandboxProvider(SandboxProvider):
             await db.commit()
 
     async def _touch_sandbox_last_seen(self, sandbox_id: str) -> None:
-        """Update sandbox_last_seen_at for the thread that owns this sandbox."""
-        from crab_platform.db.models import Thread
+        """Update sandbox_last_seen_at for the user that owns this sandbox."""
+        from crab_platform.db.models import User
 
         factory = self._get_session_factory()
 
         async with factory() as db:
             await db.execute(
-                update(Thread)
-                .where(Thread.sandbox_id == sandbox_id)
+                update(User)
+                .where(User.sandbox_id == sandbox_id)
                 .values(sandbox_last_seen_at=datetime.now(UTC))
             )
             await db.commit()
 
     async def _clear_pg_sandbox(self, sandbox_id: str) -> None:
-        """Clear sandbox fields for the thread that owns this sandbox."""
-        from crab_platform.db.models import Thread
+        """Clear sandbox fields for the user that owns this sandbox."""
+        from crab_platform.db.models import User
 
         factory = self._get_session_factory()
 
         async with factory() as db:
             await db.execute(
-                update(Thread)
-                .where(Thread.sandbox_id == sandbox_id)
+                update(User)
+                .where(User.sandbox_id == sandbox_id)
                 .values(
                     sandbox_id=None,
                     sandbox_status="terminated",

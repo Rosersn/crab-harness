@@ -39,6 +39,17 @@ def _make_e2b_sandbox_mock(sandbox_id: str = SANDBOX_ID) -> MagicMock:
     return sbx
 
 
+def _describe_coro(coro) -> tuple[str | None, dict]:
+    """Return (coroutine_name, locals) and close the coroutine to avoid warnings."""
+    if not asyncio.iscoroutine(coro):
+        return None, {}
+    frame = coro.cr_frame
+    locals_ = dict(frame.f_locals) if frame is not None else {}
+    name = coro.cr_code.co_name
+    coro.close()
+    return name, locals_
+
+
 # ===========================================================================
 # E2B path mapping config tests
 # ===========================================================================
@@ -104,6 +115,7 @@ class TestE2BSandbox:
     def test_execute_command(self):
         sbx, mock = self._make_sandbox()
         result = sbx.execute_command("echo hello")
+        mock.set_timeout.assert_called_once_with(1800)
         mock.commands.run.assert_called_once_with(
             "cd /home/user/.deerflow/user-data/workspace && echo hello",
             timeout=300,
@@ -134,6 +146,7 @@ class TestE2BSandbox:
     def test_read_file(self):
         sbx, mock = self._make_sandbox()
         result = sbx.read_file("/tmp/test.txt")
+        mock.set_timeout.assert_called_once_with(1800)
         mock.files.read.assert_called_once_with("/tmp/test.txt")
         assert result == "file content"
 
@@ -148,6 +161,7 @@ class TestE2BSandbox:
     def test_write_file(self):
         sbx, mock = self._make_sandbox()
         sbx.write_file("/tmp/out.txt", "data")
+        mock.set_timeout.assert_called_once_with(1800)
         mock.files.write.assert_called_with("/tmp/out.txt", "data")
         mock.commands.run.assert_not_called()
 
@@ -163,6 +177,7 @@ class TestE2BSandbox:
         mock.commands.run.return_value = MagicMock(stdout="/tmp\n/tmp/a.txt\n/tmp/b.txt\n", stderr="")
         sbx, _ = self._make_sandbox(mock)
         result = sbx.list_dir("/tmp")
+        mock.set_timeout.assert_called_once_with(1800)
         assert result == ["/tmp", "/tmp/a.txt", "/tmp/b.txt"]
 
     def test_list_dir_empty(self):
@@ -175,8 +190,18 @@ class TestE2BSandbox:
     def test_update_file_binary(self):
         sbx, mock = self._make_sandbox()
         sbx.update_file("/tmp/data.bin", b"\x00\x01\x02")
+        mock.set_timeout.assert_called_once_with(1800)
         mock.files.write.assert_called_with("/tmp/data.bin", b"\x00\x01\x02")
         mock.commands.run.assert_not_called()
+
+    def test_read_bytes_refreshes_timeout(self):
+        mock = _make_e2b_sandbox_mock()
+        mock.files.read.return_value = b"\x00\x01"
+        sbx, _ = self._make_sandbox(mock)
+        result = sbx.read_bytes("/tmp/data.bin")
+        mock.set_timeout.assert_called_once_with(1800)
+        mock.files.read.assert_called_once_with("/tmp/data.bin")
+        assert result == b"\x00\x01"
 
     def test_e2b_sandbox_property(self):
         sbx, mock = self._make_sandbox()
@@ -233,6 +258,8 @@ class TestE2BSandboxProvider:
         mock_config = MagicMock()
         mock_config.sandbox.keep_alive_seconds = 1800
         mock_config.sandbox.e2b_template = None
+        mock_config.sandbox.e2b_api_key = None
+        mock_config.sandbox.e2b_api_url = None
         with patch("crab_platform.sandbox.e2b_sandbox_provider.get_app_config", return_value=mock_config):
             yield
 
@@ -257,17 +284,14 @@ class TestE2BSandboxProvider:
         provider._runner = MagicMock()
         provider._runner.run = mock_run_async
 
-        # First call to _run_async: _get_sandbox_id_from_pg → None
-        # Subsequent calls: _update_pg_sandbox, inject_thread_uploads
-        call_count = [0]
         def side_effect(coro):
-            call_count[0] += 1
-            if asyncio.iscoroutine(coro):
-                coro.close()
-            if call_count[0] == 1:
-                return None  # No existing sandbox in PG
-            if call_count[0] == 3:
-                return 0  # inject_thread_uploads returns count
+            name, _locals = _describe_coro(coro)
+            if name == "_get_user_id_for_thread":
+                return USER_ID
+            if name == "_get_sandbox_id_from_pg":
+                return None
+            if name in {"inject_user_uploads", "inject_user_custom_skills"}:
+                return 0
             return None
 
         mock_run_async.side_effect = side_effect
@@ -275,6 +299,7 @@ class TestE2BSandboxProvider:
         result = provider.acquire(THREAD_ID)
         assert result == SANDBOX_ID
         mock_create.assert_called_once()
+        assert provider._user_to_sandbox[str(USER_ID)] == SANDBOX_ID
 
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._connect_sandbox")
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._run_async")
@@ -288,13 +313,12 @@ class TestE2BSandboxProvider:
         provider._runner = MagicMock()
         provider._runner.run = mock_run_async
 
-        call_count = [0]
         def side_effect(coro):
-            call_count[0] += 1
-            if asyncio.iscoroutine(coro):
-                coro.close()
-            if call_count[0] == 1:
-                return SANDBOX_ID  # Existing sandbox in PG
+            name, _locals = _describe_coro(coro)
+            if name == "_get_user_id_for_thread":
+                return USER_ID
+            if name == "_get_sandbox_id_from_pg":
+                return SANDBOX_ID
             return None
 
         mock_run_async.side_effect = side_effect
@@ -302,6 +326,7 @@ class TestE2BSandboxProvider:
         result = provider.acquire(THREAD_ID)
         assert result == SANDBOX_ID
         mock_connect.assert_called_once_with(SANDBOX_ID)
+        assert provider._user_to_sandbox[str(USER_ID)] == SANDBOX_ID
 
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._create_e2b_sandbox")
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._connect_sandbox")
@@ -317,15 +342,14 @@ class TestE2BSandboxProvider:
         provider._runner = MagicMock()
         provider._runner.run = mock_run_async
 
-        call_count = [0]
         def side_effect(coro):
-            call_count[0] += 1
-            if asyncio.iscoroutine(coro):
-                coro.close()
-            if call_count[0] == 1:
-                return "sbx_dead"  # PG has an old sandbox_id
-            if call_count[0] == 3:
-                return 0  # inject count
+            name, _locals = _describe_coro(coro)
+            if name == "_get_user_id_for_thread":
+                return USER_ID
+            if name == "_get_sandbox_id_from_pg":
+                return "sbx_dead"
+            if name in {"inject_user_uploads", "inject_user_custom_skills"}:
+                return 0
             return None
 
         mock_run_async.side_effect = side_effect
@@ -333,6 +357,7 @@ class TestE2BSandboxProvider:
         result = provider.acquire(THREAD_ID)
         assert result == "sbx_new123"
         mock_create.assert_called_once()
+        assert provider._user_to_sandbox[str(USER_ID)] == "sbx_new123"
 
     def test_acquire_in_memory_cache(self):
         """acquire() returns cached sandbox on second call."""
@@ -345,9 +370,16 @@ class TestE2BSandboxProvider:
 
         provider._sandboxes[SANDBOX_ID] = wrapped
         provider._e2b_instances[SANDBOX_ID] = mock_e2b
-        provider._thread_to_sandbox[THREAD_ID] = SANDBOX_ID
+        provider._user_to_sandbox[str(USER_ID)] = SANDBOX_ID
+        provider._sandbox_to_user[SANDBOX_ID] = str(USER_ID)
 
-        result = provider.acquire(THREAD_ID)
+        def return_user_id(coro):
+            _describe_coro(coro)
+            return USER_ID
+
+        with patch.object(provider, "_run_async", side_effect=return_user_id):
+            result = provider.acquire(THREAD_ID)
+
         assert result == SANDBOX_ID
 
     def test_get_returns_cached(self):
@@ -369,10 +401,39 @@ class TestE2BSandboxProvider:
         provider = E2BSandboxProvider()
         assert provider.get("nonexistent") is None
 
+    @patch("e2b.Sandbox")
+    def test_connect_sandbox_sets_timeout_on_connect(self, mock_e2b_sdk):
+        """connect() should refresh the inactivity timeout window on resume."""
+        from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
+
+        provider = E2BSandboxProvider()
+        provider._connect_sandbox(SANDBOX_ID)
+
+        mock_e2b_sdk.connect.assert_called_once_with(SANDBOX_ID, timeout=1800)
+
+    @patch("e2b.sandbox.sandbox_api.SandboxLifecycle", side_effect=lambda **kwargs: kwargs)
+    @patch("e2b.Sandbox")
+    def test_create_sandbox_sets_timeout_and_pause_lifecycle(
+        self,
+        mock_e2b_sdk,
+        mock_lifecycle,
+    ):
+        """create() should opt into auto-pause and keep the 30-minute inactivity window."""
+        from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
+
+        provider = E2BSandboxProvider()
+        provider._create_e2b_sandbox()
+
+        mock_lifecycle.assert_called_once_with(on_timeout="pause", auto_resume=True)
+        mock_e2b_sdk.create.assert_called_once_with(
+            timeout=1800,
+            lifecycle={"on_timeout": "pause", "auto_resume": True},
+        )
+
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._run_async")
     def test_release_sets_timeout(self, mock_run_async):
         """release() sets keepAlive timeout and removes from cache."""
-        mock_run_async.return_value = None
+        mock_run_async.side_effect = lambda coro: (_describe_coro(coro), None)[1]
 
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
@@ -384,14 +445,16 @@ class TestE2BSandboxProvider:
         wrapped = E2BSandbox(id=SANDBOX_ID, e2b_sandbox=mock_e2b)
         provider._sandboxes[SANDBOX_ID] = wrapped
         provider._e2b_instances[SANDBOX_ID] = mock_e2b
-        provider._thread_to_sandbox[THREAD_ID] = SANDBOX_ID
+        provider._user_to_sandbox[str(USER_ID)] = SANDBOX_ID
+        provider._sandbox_to_user[SANDBOX_ID] = str(USER_ID)
 
         provider.release(SANDBOX_ID)
 
         # Sandbox should be removed from caches
         assert SANDBOX_ID not in provider._sandboxes
         assert SANDBOX_ID not in provider._e2b_instances
-        assert THREAD_ID not in provider._thread_to_sandbox
+        assert str(USER_ID) not in provider._user_to_sandbox
+        assert SANDBOX_ID not in provider._sandbox_to_user
 
         # set_timeout should have been called
         mock_e2b.set_timeout.assert_called_once_with(1800)
@@ -428,7 +491,7 @@ class TestE2BSandboxProvider:
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._connect_sandbox")
     def test_terminate_kills_sandbox(self, mock_connect, mock_run_async):
         """terminate() kills the E2B sandbox and clears PG."""
-        mock_run_async.return_value = None
+        mock_run_async.side_effect = lambda coro: (_describe_coro(coro), None)[1]
 
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
@@ -456,8 +519,10 @@ class TestE2BSandboxProvider:
         provider._runner = MagicMock()
         provider.shutdown()
 
+        coro = asyncio.sleep(0)
         with pytest.raises(RuntimeError, match="shut down"):
-            provider._run_async(asyncio.sleep(0))
+            provider._run_async(coro)
+        coro.close()
 
     def test_run_async_serialises_concurrent_calls(self):
         """_run_async uses _async_lock to serialise concurrent access."""
@@ -489,58 +554,59 @@ class TestE2BSandboxProvider:
         # With serialisation, we should see enter/exit/enter/exit (not enter/enter/exit/exit)
         assert call_order == ["enter", "exit", "enter", "exit"]
 
-    # -- P0 fix: per-thread locking in acquire() ----------------------------
+    # -- P0 fix: per-user locking in acquire() ------------------------------
 
-    def test_acquire_per_thread_lock_prevents_double_creation(self):
-        """Two concurrent acquire() calls for the same thread_id should not both create."""
+    def test_acquire_per_user_lock_prevents_double_creation_for_two_threads(self):
+        """Two concurrent acquire() calls for different threads of the same user create once."""
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
 
         mock_e2b = _make_e2b_sandbox_mock()
         create_count = [0]
+        tid1 = str(uuid.uuid4())
+        tid2 = str(uuid.uuid4())
 
         with (
             patch.object(provider, "_run_async") as mock_run_async,
             patch.object(provider, "_create_e2b_sandbox") as mock_create,
         ):
             def run_async_side_effect(coro):
-                if asyncio.iscoroutine(coro):
-                    coro.close()
-                # First _run_async call per acquire = PG lookup → None (no existing)
-                # Remaining calls = PG update, inject
+                name, _locals = _describe_coro(coro)
+                if name == "_get_user_id_for_thread":
+                    return USER_ID
+                if name == "_get_sandbox_id_from_pg":
+                    return None
+                if name in {"inject_user_uploads", "inject_user_custom_skills"}:
+                    return 0
                 return None
 
             mock_run_async.side_effect = run_async_side_effect
 
             def create_side_effect():
+                import time
                 create_count[0] += 1
-                # Second call should not happen if locking works, but
-                # give a different ID so we can detect it
+                time.sleep(0.05)
                 return _make_e2b_sandbox_mock(f"sbx_{create_count[0]}")
 
             mock_create.side_effect = create_side_effect
 
-            thread_id = str(uuid.uuid4())
             results = []
 
-            def do_acquire():
+            def do_acquire(thread_id):
                 results.append(provider.acquire(thread_id))
 
-            t1 = threading.Thread(target=do_acquire)
-            t2 = threading.Thread(target=do_acquire)
+            t1 = threading.Thread(target=do_acquire, args=(tid1,))
+            t2 = threading.Thread(target=do_acquire, args=(tid2,))
             t1.start()
             t2.start()
             t1.join()
             t2.join()
 
-            # The second thread should hit the in-memory cache (set by the first),
-            # so _create_e2b_sandbox should be called exactly once
             assert create_count[0] == 1
-            # Both should return the same sandbox_id
             assert results[0] == results[1]
 
-    def test_acquire_different_threads_not_blocked(self):
-        """acquire() for different thread_ids should not block each other."""
+    def test_acquire_different_users_create_distinct_sandboxes(self):
+        """Threads owned by different users should create distinct sandboxes."""
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
 
@@ -549,10 +615,21 @@ class TestE2BSandboxProvider:
             patch.object(provider, "_create_e2b_sandbox") as mock_create,
         ):
             call_count = [0]
+            tid1 = str(uuid.uuid4())
+            tid2 = str(uuid.uuid4())
+            user_map = {
+                tid1: uuid.uuid4(),
+                tid2: uuid.uuid4(),
+            }
 
             def run_async_side_effect(coro):
-                if asyncio.iscoroutine(coro):
-                    coro.close()
+                name, _locals = _describe_coro(coro)
+                if name == "_get_user_id_for_thread":
+                    return user_map[_locals["thread_id"]]
+                if name == "_get_sandbox_id_from_pg":
+                    return None
+                if name in {"inject_user_uploads", "inject_user_custom_skills"}:
+                    return 0
                 return None
 
             mock_run_async.side_effect = run_async_side_effect
@@ -563,8 +640,6 @@ class TestE2BSandboxProvider:
 
             mock_create.side_effect = create_side_effect
 
-            tid1 = str(uuid.uuid4())
-            tid2 = str(uuid.uuid4())
             results = {}
 
             def do_acquire(tid):
@@ -719,6 +794,73 @@ class TestFileInjector:
             assert count == 1  # Only good.txt succeeded
 
 
+class TestUserFileInjector:
+    """Test user-scoped BOS → E2B file injection."""
+
+    @pytest.fixture
+    def mock_session_factory(self):
+        mock_db = AsyncMock()
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+        factory = MagicMock()
+        factory.return_value = mock_session
+        return factory, mock_db
+
+    @pytest.mark.asyncio
+    async def test_inject_user_uploads_no_uploads(self, mock_session_factory):
+        """inject_user_uploads returns 0 when the user has no uploads."""
+        factory, mock_db = mock_session_factory
+
+        with patch("crab_platform.db.repos.upload_repo.UploadRepo") as MockUploadRepo:
+            MockUploadRepo.return_value.list_for_user = AsyncMock(return_value=[])
+
+            from crab_platform.sandbox.file_injector import inject_user_uploads
+            e2b_mock = _make_e2b_sandbox_mock()
+            count = await inject_user_uploads(factory, USER_ID, e2b_mock)
+            assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_inject_user_uploads_writes_shared_user_files(self, mock_session_factory):
+        """inject_user_uploads writes all user uploads into the shared user sandbox paths."""
+        factory, mock_db = mock_session_factory
+
+        upload1 = MagicMock()
+        upload1.filename = "data.csv"
+        upload1.bos_key = "tenant/user/uploads/thread-a/data.csv"
+        upload1.markdown_bos_key = None
+
+        upload2 = MagicMock()
+        upload2.filename = "report.pdf"
+        upload2.bos_key = "tenant/user/uploads/thread-b/report.pdf"
+        upload2.markdown_bos_key = "tenant/user/uploads/thread-b/report.pdf.md"
+
+        mock_storage = AsyncMock()
+        mock_storage.get = AsyncMock(side_effect=[
+            b"csv content",
+            b"pdf content",
+            b"markdown content",
+        ])
+
+        with (
+            patch("crab_platform.db.repos.upload_repo.UploadRepo") as MockUploadRepo,
+            patch("crab_platform.storage.get_object_storage", return_value=mock_storage),
+        ):
+            MockUploadRepo.return_value.list_for_user = AsyncMock(return_value=[upload1, upload2])
+
+            from crab_platform.sandbox.file_injector import inject_user_uploads
+            e2b_mock = _make_e2b_sandbox_mock()
+            count = await inject_user_uploads(factory, USER_ID, e2b_mock)
+
+            assert count == 3
+            assert e2b_mock.files.write.call_count == 3
+
+            paths_written = [c[0][0] for c in e2b_mock.files.write.call_args_list]
+            assert "/home/user/.deerflow/user-data/uploads/data.csv" in paths_written
+            assert "/home/user/.deerflow/user-data/uploads/report.pdf" in paths_written
+            assert "/home/user/.deerflow/user-data/uploads/report.pdf.extracted.md" in paths_written
+
+
 # ===========================================================================
 # SandboxCleaner tests
 # ===========================================================================
@@ -757,18 +899,18 @@ class TestSandboxCleaner:
 
         cleaner = SandboxCleaner(session_factory=mock_factory, ttl_hours=24)
 
-        thread_id = uuid.uuid4()
+        user_id = uuid.uuid4()
         sandbox_id = "sbx_stale"
 
         # Mock PG query returning one stale sandbox
         mock_result = MagicMock()
-        mock_result.all.return_value = [(thread_id, sandbox_id, "active")]
+        mock_result.all.return_value = [(user_id, sandbox_id, "active")]
         mock_db.execute = AsyncMock(return_value=mock_result)
         mock_db.commit = AsyncMock()
 
         with patch("crab_platform.sandbox.cleaner.SandboxCleaner._terminate_sandbox", new_callable=AsyncMock) as mock_terminate:
             await cleaner._cleanup_stale_sandboxes()
-            mock_terminate.assert_called_once_with(mock_db, thread_id, sandbox_id)
+            mock_terminate.assert_called_once_with(mock_db, user_id, sandbox_id)
 
     @pytest.mark.asyncio
     async def test_terminate_sandbox_kills_and_updates_pg(self):
@@ -786,8 +928,8 @@ class TestSandboxCleaner:
         with patch("e2b.Sandbox") as MockE2B:
             MockE2B.connect.return_value = mock_e2b
 
-            thread_id = uuid.uuid4()
-            await cleaner._terminate_sandbox(mock_db, thread_id, SANDBOX_ID)
+            user_id = uuid.uuid4()
+            await cleaner._terminate_sandbox(mock_db, user_id, SANDBOX_ID)
 
             MockE2B.connect.assert_called_once_with(SANDBOX_ID)
             mock_e2b.kill.assert_called_once()
@@ -865,6 +1007,8 @@ class TestE2BSandboxProviderEdgeCases:
         mock_config = MagicMock()
         mock_config.sandbox.keep_alive_seconds = 1800
         mock_config.sandbox.e2b_template = None
+        mock_config.sandbox.e2b_api_key = None
+        mock_config.sandbox.e2b_api_url = None
         with patch("crab_platform.sandbox.e2b_sandbox_provider.get_app_config", return_value=mock_config):
             yield
 
@@ -881,9 +1025,8 @@ class TestE2BSandboxProviderEdgeCases:
 
         assert result == SANDBOX_ID
         assert provider.get(SANDBOX_ID) is not None
-        # Anonymous sandbox should NOT be in thread_to_sandbox mapping
-        assert SANDBOX_ID not in provider._thread_to_sandbox.values() or \
-               all(v != SANDBOX_ID for k, v in provider._thread_to_sandbox.items() if k is not None)
+        assert provider._user_to_sandbox == {}
+        assert provider._sandbox_to_user == {}
 
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._connect_sandbox")
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._run_async")
@@ -891,7 +1034,7 @@ class TestE2BSandboxProviderEdgeCases:
         """#12: terminate() when sandbox not in memory tries connect-and-kill."""
         mock_e2b = _make_e2b_sandbox_mock()
         mock_connect.return_value = mock_e2b
-        mock_run_async.return_value = None
+        mock_run_async.side_effect = lambda coro: (_describe_coro(coro), None)[1]
 
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
@@ -914,7 +1057,7 @@ class TestE2BSandboxProviderEdgeCases:
     def test_terminate_not_in_memory_connect_fails(self, mock_run_async, mock_connect):
         """#12: terminate() when connect fails still clears PG."""
         mock_connect.side_effect = RuntimeError("sandbox gone")
-        mock_run_async.return_value = None
+        mock_run_async.side_effect = lambda coro: (_describe_coro(coro), None)[1]
 
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
@@ -934,7 +1077,7 @@ class TestE2BSandboxProviderEdgeCases:
         provider = E2BSandboxProvider()
         provider._runner = MagicMock()
 
-        with patch.object(provider, "_run_async", return_value=None):
+        with patch.object(provider, "_run_async", side_effect=lambda coro: (_describe_coro(coro), None)[1]):
             # Should not raise
             provider.release("nonexistent_sandbox_id")
 
@@ -951,20 +1094,22 @@ class TestE2BSandboxProviderEdgeCases:
         wrapped = E2BSandbox(id=SANDBOX_ID, e2b_sandbox=mock_e2b)
         provider._sandboxes[SANDBOX_ID] = wrapped
         provider._e2b_instances[SANDBOX_ID] = mock_e2b
-        provider._thread_to_sandbox[THREAD_ID] = SANDBOX_ID
+        provider._user_to_sandbox[str(USER_ID)] = SANDBOX_ID
+        provider._sandbox_to_user[SANDBOX_ID] = str(USER_ID)
 
-        with patch.object(provider, "_run_async", return_value=None):
+        with patch.object(provider, "_run_async", side_effect=lambda coro: (_describe_coro(coro), None)[1]):
             provider.release(SANDBOX_ID)
 
         # Sandbox should STILL be in cache since set_timeout failed
         assert SANDBOX_ID in provider._sandboxes
         assert SANDBOX_ID in provider._e2b_instances
-        assert THREAD_ID in provider._thread_to_sandbox
+        assert provider._user_to_sandbox[str(USER_ID)] == SANDBOX_ID
+        assert provider._sandbox_to_user[SANDBOX_ID] == str(USER_ID)
 
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._run_async")
     def test_release_calls_touch_sandbox_last_seen(self, mock_run_async):
         """#19: release() calls _touch_sandbox_last_seen via _run_async."""
-        mock_run_async.return_value = None
+        mock_run_async.side_effect = lambda coro: (_describe_coro(coro), None)[1]
 
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
@@ -987,7 +1132,7 @@ class TestE2BSandboxProviderEdgeCases:
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._run_async")
     def test_terminate_calls_clear_pg_sandbox(self, mock_run_async):
         """#20: terminate() calls _clear_pg_sandbox via _run_async."""
-        mock_run_async.return_value = None
+        mock_run_async.side_effect = lambda coro: (_describe_coro(coro), None)[1]
 
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
@@ -1007,7 +1152,7 @@ class TestE2BSandboxProviderEdgeCases:
         assert mock_run_async.called
 
     def test_evict_from_cache_clears_all_mappings(self):
-        """_evict_from_cache removes sandbox from all three caches."""
+        """_evict_from_cache removes sandbox from all in-memory caches."""
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
         provider._runner = MagicMock()
@@ -1017,15 +1162,16 @@ class TestE2BSandboxProviderEdgeCases:
         wrapped = E2BSandbox(id=SANDBOX_ID, e2b_sandbox=mock_e2b)
         provider._sandboxes[SANDBOX_ID] = wrapped
         provider._e2b_instances[SANDBOX_ID] = mock_e2b
-        tid1 = str(uuid.uuid4())
-        provider._thread_to_sandbox[tid1] = SANDBOX_ID
+        provider._user_to_sandbox[str(USER_ID)] = SANDBOX_ID
+        provider._sandbox_to_user[SANDBOX_ID] = str(USER_ID)
 
         result = provider._evict_from_cache(SANDBOX_ID)
 
         assert result is mock_e2b
         assert SANDBOX_ID not in provider._sandboxes
         assert SANDBOX_ID not in provider._e2b_instances
-        assert tid1 not in provider._thread_to_sandbox
+        assert str(USER_ID) not in provider._user_to_sandbox
+        assert SANDBOX_ID not in provider._sandbox_to_user
 
     def test_evict_from_cache_unknown_returns_none(self):
         """_evict_from_cache returns None for unknown sandbox."""
@@ -1058,8 +1204,8 @@ class TestSandboxCleanerEdgeCases:
         with patch("e2b.Sandbox") as MockE2B:
             MockE2B.connect.side_effect = RuntimeError("sandbox already gone")
 
-            thread_id = uuid.uuid4()
-            await cleaner._terminate_sandbox(mock_db, thread_id, SANDBOX_ID)
+            user_id = uuid.uuid4()
+            await cleaner._terminate_sandbox(mock_db, user_id, SANDBOX_ID)
 
             MockE2B.connect.assert_called_once_with(SANDBOX_ID)
             # PG update should STILL have been called despite connect failure

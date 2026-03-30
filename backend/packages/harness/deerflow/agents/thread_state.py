@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated, NotRequired, TypedDict
 
 from langchain.agents import AgentState
@@ -11,6 +12,14 @@ class ThreadDataState(TypedDict):
     workspace_path: NotRequired[str | None]
     uploads_path: NotRequired[str | None]
     outputs_path: NotRequired[str | None]
+
+
+class AgentRuntimeContext(TypedDict, total=False):
+    thread_id: str
+    agent_name: str
+    sandbox_id: str
+    user_id: str | uuid.UUID
+    tenant_id: str | uuid.UUID
 
 
 class ViewedImageData(TypedDict):

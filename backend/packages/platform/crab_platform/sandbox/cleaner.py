@@ -1,6 +1,6 @@
-"""Background cleaner for stale E2B sandboxes.
+"""Background cleaner for stale user-scoped E2B sandboxes.
 
-Runs as a daemon thread, periodically scanning PG for sandboxes whose
+Runs as a daemon thread, periodically scanning PG for user sandboxes whose
 ``sandbox_last_seen_at`` exceeds the configured TTL, and terminates them
 via the E2B SDK.
 """
@@ -29,7 +29,7 @@ _DEFAULT_CHECK_INTERVAL_MINUTES = 30
 class SandboxCleaner:
     """Background thread that periodically terminates stale E2B sandboxes.
 
-    Scans the ``threads`` table for rows with ``sandbox_status='active'`` (or
+    Scans the ``users`` table for rows with ``sandbox_status='active'`` (or
     ``'paused'``) whose ``sandbox_last_seen_at`` is older than *ttl_hours*.
     For each, it connects to the E2B sandbox and kills it, then clears the PG
     fields.
@@ -98,7 +98,7 @@ class SandboxCleaner:
 
     async def _cleanup_stale_sandboxes(self) -> None:
         """Find and terminate sandboxes that haven't been active within the TTL."""
-        from crab_platform.db.models import Thread
+        from crab_platform.db.models import User
 
         cutoff = datetime.now(UTC) - timedelta(hours=self._ttl_hours)
         factory = self._get_session_factory()
@@ -106,11 +106,11 @@ class SandboxCleaner:
         async with factory() as db:
             # Find stale sandboxes
             result = await db.execute(
-                select(Thread.id, Thread.sandbox_id, Thread.sandbox_status)
+                select(User.id, User.sandbox_id, User.sandbox_status)
                 .where(
-                    Thread.sandbox_id.is_not(None),
-                    Thread.sandbox_status.in_(["active", "paused"]),
-                    Thread.sandbox_last_seen_at < cutoff,
+                    User.sandbox_id.is_not(None),
+                    User.sandbox_status.in_(["active", "paused"]),
+                    User.sandbox_last_seen_at < cutoff,
                 )
             )
             stale = result.all()
@@ -120,19 +120,19 @@ class SandboxCleaner:
 
             logger.info("Found %d stale E2B sandboxes to terminate", len(stale))
 
-            for thread_id, sandbox_id, status in stale:
-                await self._terminate_sandbox(db, thread_id, sandbox_id)
+            for user_id, sandbox_id, status in stale:
+                await self._terminate_sandbox(db, user_id, sandbox_id)
 
             await db.commit()
 
     async def _terminate_sandbox(
         self,
         db: AsyncSession,
-        thread_id: uuid.UUID,
+        user_id: uuid.UUID,
         sandbox_id: str,
     ) -> None:
         """Kill an E2B sandbox and clear PG fields."""
-        from crab_platform.db.models import Thread
+        from crab_platform.db.models import User
 
         try:
             from e2b import Sandbox as E2BSdkSandbox
@@ -143,7 +143,7 @@ class SandboxCleaner:
                 opts["api_url"] = self._e2b_api_url
             sbx = E2BSdkSandbox.connect(sandbox_id, **opts)
             sbx.kill()
-            logger.info("Terminated stale E2B sandbox %s (thread %s)", sandbox_id, thread_id)
+            logger.info("Terminated stale E2B sandbox %s (user %s)", sandbox_id, user_id)
         except Exception:
             # Sandbox may already be dead — that's fine, just clear PG
             logger.debug(
@@ -154,8 +154,8 @@ class SandboxCleaner:
 
         # Clear PG sandbox fields
         await db.execute(
-            update(Thread)
-            .where(Thread.id == thread_id)
+            update(User)
+            .where(User.id == user_id)
             .values(
                 sandbox_id=None,
                 sandbox_status="terminated",

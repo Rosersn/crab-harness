@@ -33,7 +33,7 @@ from langchain_core.runnables import RunnableConfig
 
 from deerflow.agents.lead_agent.agent import _build_middlewares
 from deerflow.agents.lead_agent.prompt import apply_prompt_template
-from deerflow.agents.thread_state import ThreadState
+from deerflow.agents.thread_state import AgentRuntimeContext, ThreadState
 from deerflow.config.agents_config import AGENT_NAME_PATTERN
 from deerflow.config.app_config import get_app_config, reload_app_config
 from deerflow.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
@@ -224,6 +224,7 @@ class DeerFlowClient:
                 agent_name=self._agent_name,
             ),
             "state_schema": ThreadState,
+            "context_schema": AgentRuntimeContext,
         }
         checkpointer = self._checkpointer
         if checkpointer is None:

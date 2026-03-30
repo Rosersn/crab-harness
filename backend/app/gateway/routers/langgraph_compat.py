@@ -1092,7 +1092,6 @@ async def _cleanup_thread_resources(thread: Thread, db: AsyncSession) -> None:
     from crab_platform.redis import release_thread_lock
     from crab_platform.storage import get_object_storage
     from deerflow.agents.checkpointer import make_checkpointer
-    from deerflow.sandbox.sandbox_provider import get_sandbox_provider
 
     storage = get_object_storage()
 
@@ -1116,17 +1115,6 @@ async def _cleanup_thread_resources(thread: Thread, db: AsyncSession) -> None:
                 await asyncio.to_thread(checkpointer.delete_thread, str(thread.id))
     except Exception:
         logger.warning("Failed to clear checkpointer state for thread %s", thread.id, exc_info=True)
-
-    # Terminate any existing sandbox for the thread.
-    if thread.sandbox_id:
-        try:
-            provider = get_sandbox_provider()
-            if hasattr(provider, "terminate"):
-                provider.terminate(thread.sandbox_id)
-            else:
-                provider.release(thread.sandbox_id)
-        except Exception:
-            logger.warning("Failed to clean sandbox %s for thread %s", thread.sandbox_id, thread.id, exc_info=True)
 
     # Remove lingering local thread directory.
     try:

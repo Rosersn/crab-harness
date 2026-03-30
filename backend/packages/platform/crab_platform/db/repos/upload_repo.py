@@ -45,6 +45,14 @@ class UploadRepo:
         )
         return list(result.scalars().all())
 
+    async def list_for_user(self, user_id: uuid.UUID) -> list[UploadMetadata]:
+        result = await self._db.execute(
+            select(UploadMetadata)
+            .where(UploadMetadata.user_id == user_id)
+            .order_by(UploadMetadata.created_at)
+        )
+        return list(result.scalars().all())
+
     async def get_by_id(self, upload_id: uuid.UUID) -> UploadMetadata | None:
         result = await self._db.execute(
             select(UploadMetadata).where(UploadMetadata.id == upload_id)

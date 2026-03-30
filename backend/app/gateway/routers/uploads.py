@@ -463,22 +463,6 @@ async def delete_uploaded_file(
     except Exception:
         logger.warning("Failed to delete local file %s (continuing)", filename)
 
-    # Delete from sandbox if a thread-bound sandbox already exists
-    try:
-        thread = await ThreadRepo(db).get(tid)
-        if thread and thread.sandbox_id:
-            sandbox_provider = get_sandbox_provider()
-            sandbox = sandbox_provider.get(thread.sandbox_id)
-            if sandbox is not None:
-                sandbox.execute_command(
-                    "rm -f "
-                    + shlex.quote(upload_virtual_path(filename))
-                    + " "
-                    + shlex.quote(upload_virtual_path(f"{filename}.extracted.md"))
-                )
-    except Exception:
-        logger.warning("Failed to delete sandbox copy for %s (continuing)", filename, exc_info=True)
-
     # Delete from PG
     await upload_repo.delete(record.id)
     await db.commit()

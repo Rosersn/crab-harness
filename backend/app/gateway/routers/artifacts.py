@@ -110,12 +110,21 @@ def _normalize_virtual_path(virtual_path: str) -> str:
     return "/" + virtual_path.lstrip("/")
 
 
-async def _read_remote_artifact_bytes(thread_id: str, virtual_path: str, sandbox_id: str | None) -> bytes | None:
+async def _read_remote_artifact_bytes(thread_id: str, virtual_path: str) -> bytes | None:
     """Best-effort read of an artifact directly from the sandbox."""
+    provider = get_sandbox_provider()
+    sandbox_id: str | None = None
+    lookup_sandbox_id = getattr(provider, "lookup_sandbox_id", None)
+    if callable(lookup_sandbox_id):
+        try:
+            sandbox_id = await asyncio.to_thread(lookup_sandbox_id, thread_id)
+        except Exception:
+            logger.debug("Failed to look up sandbox for artifact fallback", exc_info=True)
+            sandbox_id = None
+
     if not sandbox_id:
         return None
 
-    provider = get_sandbox_provider()
     acquired_sandbox_id: str | None = None
     sandbox = provider.get(sandbox_id)
     if sandbox is None:
@@ -205,7 +214,7 @@ async def get_artifact(
         - Download file: `/api/threads/abc123/artifacts/mnt/user-data/outputs/data.csv?download=true`
         - Active web content such as `.html`, `.xhtml`, and `.svg` artifacts is always downloaded
     """
-    thread = await _require_owned_thread(thread_id, user, db)
+    await _require_owned_thread(thread_id, user, db)
 
     # Check if this is a request for a file inside a .skill archive (e.g., xxx.skill/SKILL.md)
     if ".skill/" in path:
@@ -223,7 +232,7 @@ async def get_artifact(
                 raise HTTPException(status_code=400, detail=f"Path is not a file: {skill_file_path}")
             content = _extract_file_from_skill_archive(actual_skill_path, internal_path)
         else:
-            remote_skill_bytes = await _read_remote_artifact_bytes(thread_id, skill_file_path, thread.sandbox_id)
+            remote_skill_bytes = await _read_remote_artifact_bytes(thread_id, skill_file_path)
             if remote_skill_bytes is None:
                 raise HTTPException(status_code=404, detail=f"Skill file not found: {skill_file_path}")
             content = _extract_file_from_skill_archive_bytes(remote_skill_bytes, internal_path)
@@ -254,7 +263,7 @@ async def get_artifact(
 
     remote_content: bytes | None = None
     if not actual_path.exists():
-        remote_content = await _read_remote_artifact_bytes(thread_id, path, thread.sandbox_id)
+        remote_content = await _read_remote_artifact_bytes(thread_id, path)
         if remote_content is None:
             raise HTTPException(status_code=404, detail=f"Artifact not found: {path}")
 

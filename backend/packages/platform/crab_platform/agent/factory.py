@@ -26,7 +26,7 @@ from crab_platform.context import RequestContext
 # Reuse harness internals
 from deerflow.agents.lead_agent.agent import _build_middlewares, _resolve_model_name
 from deerflow.agents.lead_agent.prompt import apply_prompt_template
-from deerflow.agents.thread_state import ThreadState
+from deerflow.agents.thread_state import AgentRuntimeContext, ThreadState
 from deerflow.config.agents_config import load_agent_config
 from deerflow.config.app_config import get_app_config
 from deerflow.models import create_chat_model
@@ -136,6 +136,7 @@ async def make_tenant_agent(
         "middleware": middlewares,
         "system_prompt": system_prompt,
         "state_schema": ThreadState,
+        "context_schema": AgentRuntimeContext,
     }
     if checkpointer is not None:
         agent_kwargs["checkpointer"] = checkpointer

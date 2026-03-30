@@ -16,7 +16,7 @@ from langchain.tools import BaseTool
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from deerflow.agents.thread_state import SandboxState, ThreadDataState, ThreadState
+from deerflow.agents.thread_state import AgentRuntimeContext, SandboxState, ThreadDataState, ThreadState
 from deerflow.models import create_chat_model
 from deerflow.subagents.config import SubagentConfig
 
@@ -177,6 +177,7 @@ class SubagentExecutor:
             middleware=middlewares,
             system_prompt=self.config.system_prompt,
             state_schema=ThreadState,
+            context_schema=AgentRuntimeContext,
         )
 
     def _build_initial_state(self, task: str) -> dict[str, Any]:

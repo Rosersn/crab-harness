@@ -6,13 +6,13 @@ All tests mock the E2B SDK and PG — no real sandbox or database needed.
 from __future__ import annotations
 
 import asyncio
-import shlex
+import io
+import tarfile
 import threading
 import uuid
-from datetime import UTC, datetime, timedelta
-from pathlib import PurePosixPath
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -33,6 +33,7 @@ def _make_e2b_sandbox_mock(sandbox_id: str = SANDBOX_ID) -> MagicMock:
     sbx.commands.run.return_value = MagicMock(stdout="hello\n", stderr="")
     sbx.files.read.return_value = "file content"
     sbx.files.write.return_value = None
+    sbx.files.write_files.return_value = []
     sbx.files.make_dir.return_value = True
     sbx.set_timeout.return_value = None
     sbx.kill.return_value = None
@@ -48,6 +49,14 @@ def _describe_coro(coro) -> tuple[str | None, dict]:
     name = coro.cr_code.co_name
     coro.close()
     return name, locals_
+
+
+def _written_paths_from_write_files(e2b_mock: MagicMock) -> list[str]:
+    paths: list[str] = []
+    for call_ in e2b_mock.files.write_files.call_args_list:
+        entries = call_.args[0]
+        paths.extend(entry["path"] for entry in entries)
+    return paths
 
 
 # ===========================================================================
@@ -278,6 +287,7 @@ class TestE2BSandboxProvider:
         mock_e2b = _make_e2b_sandbox_mock()
         mock_create.return_value = mock_e2b
         mock_run_async.return_value = None  # PG returns no existing sandbox
+        called_coroutines = []
 
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
@@ -286,11 +296,12 @@ class TestE2BSandboxProvider:
 
         def side_effect(coro):
             name, _locals = _describe_coro(coro)
+            called_coroutines.append(name)
             if name == "_get_user_id_for_thread":
                 return USER_ID
             if name == "_get_sandbox_id_from_pg":
                 return None
-            if name in {"inject_user_uploads", "inject_user_custom_skills"}:
+            if name in {"inject_user_uploads", "inject_platform_skills", "inject_user_custom_skills"}:
                 return 0
             return None
 
@@ -300,6 +311,7 @@ class TestE2BSandboxProvider:
         assert result == SANDBOX_ID
         mock_create.assert_called_once()
         assert provider._user_to_sandbox[str(USER_ID)] == SANDBOX_ID
+        assert "inject_platform_skills" in called_coroutines
 
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._connect_sandbox")
     @patch("crab_platform.sandbox.e2b_sandbox_provider.E2BSandboxProvider._run_async")
@@ -348,7 +360,7 @@ class TestE2BSandboxProvider:
                 return USER_ID
             if name == "_get_sandbox_id_from_pg":
                 return "sbx_dead"
-            if name in {"inject_user_uploads", "inject_user_custom_skills"}:
+            if name in {"inject_user_uploads", "inject_platform_skills", "inject_user_custom_skills"}:
                 return 0
             return None
 
@@ -531,8 +543,6 @@ class TestE2BSandboxProvider:
 
         call_order = []
 
-        original_run = provider._runner.run
-
         def slow_run(coro):
             call_order.append("enter")
             import time
@@ -561,7 +571,6 @@ class TestE2BSandboxProvider:
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
         provider = E2BSandboxProvider()
 
-        mock_e2b = _make_e2b_sandbox_mock()
         create_count = [0]
         tid1 = str(uuid.uuid4())
         tid2 = str(uuid.uuid4())
@@ -576,7 +585,7 @@ class TestE2BSandboxProvider:
                     return USER_ID
                 if name == "_get_sandbox_id_from_pg":
                     return None
-                if name in {"inject_user_uploads", "inject_user_custom_skills"}:
+                if name in {"inject_user_uploads", "inject_platform_skills", "inject_user_custom_skills"}:
                     return 0
                 return None
 
@@ -628,7 +637,7 @@ class TestE2BSandboxProvider:
                     return user_map[_locals["thread_id"]]
                 if name == "_get_sandbox_id_from_pg":
                     return None
-                if name in {"inject_user_uploads", "inject_user_custom_skills"}:
+                if name in {"inject_user_uploads", "inject_platform_skills", "inject_user_custom_skills"}:
                     return 0
                 return None
 
@@ -853,12 +862,54 @@ class TestUserFileInjector:
             count = await inject_user_uploads(factory, USER_ID, e2b_mock)
 
             assert count == 3
-            assert e2b_mock.files.write.call_count == 3
+            assert e2b_mock.files.write.assert_not_called() is None
+            assert e2b_mock.files.write_files.call_count == 1
 
-            paths_written = [c[0][0] for c in e2b_mock.files.write.call_args_list]
+            paths_written = _written_paths_from_write_files(e2b_mock)
             assert "/home/user/.deerflow/user-data/uploads/data.csv" in paths_written
             assert "/home/user/.deerflow/user-data/uploads/report.pdf" in paths_written
             assert "/home/user/.deerflow/user-data/uploads/report.pdf.extracted.md" in paths_written
+
+    @pytest.mark.asyncio
+    async def test_inject_platform_skills_writes_shared_skill_tree(self):
+        """inject_platform_skills copies shared skill files into the E2B skills root."""
+        skills_root = Path("/tmp") / f"skills-{uuid.uuid4()}"
+        try:
+            public_skill_dir = skills_root / "public" / "research"
+            custom_skill_dir = skills_root / "custom" / "team" / "helper"
+            (public_skill_dir / "scripts").mkdir(parents=True, exist_ok=True)
+            custom_skill_dir.mkdir(parents=True, exist_ok=True)
+
+            (public_skill_dir / "SKILL.md").write_text("# Research\n", encoding="utf-8")
+            (public_skill_dir / "scripts" / "run.sh").write_text("echo hi\n", encoding="utf-8")
+            (custom_skill_dir / "SKILL.md").write_text("# Helper\n", encoding="utf-8")
+
+            from crab_platform.sandbox.file_injector import inject_platform_skills
+
+            e2b_mock = _make_e2b_sandbox_mock()
+            count = await inject_platform_skills(e2b_mock, skills_path=skills_root)
+
+            assert count == 3
+            assert e2b_mock.files.write_files.call_count == 1
+            archive_entry = e2b_mock.files.write_files.call_args.args[0][0]
+            assert archive_entry["path"] == "/home/user/.deerflow/skills/.platform-skills.tar.gz"
+
+            with tarfile.open(fileobj=io.BytesIO(archive_entry["data"]), mode="r:gz") as archive:
+                archived_paths = archive.getnames()
+
+            assert "public/research/SKILL.md" in archived_paths
+            assert "public/research/scripts/run.sh" in archived_paths
+            assert "custom/team/helper/SKILL.md" in archived_paths
+
+            e2b_mock.commands.run.assert_called_once()
+            extract_cmd = e2b_mock.commands.run.call_args.args[0]
+            assert "tar -xzf" in extract_cmd
+            assert "/home/user/.deerflow/skills/.platform-skills.tar.gz" in extract_cmd
+        finally:
+            if skills_root.exists():
+                import shutil
+
+                shutil.rmtree(skills_root)
 
 
 # ===========================================================================
@@ -1295,7 +1346,9 @@ class TestSandboxABCCompliance:
 
     def test_is_subclass_of_sandbox(self):
         from crab_platform.sandbox.e2b_sandbox import E2BSandbox
+
         from deerflow.sandbox.sandbox import Sandbox
+
         assert issubclass(E2BSandbox, Sandbox)
 
     def test_all_abstract_methods_implemented(self):
@@ -1315,7 +1368,9 @@ class TestSandboxProviderABCCompliance:
 
     def test_is_subclass_of_sandbox_provider(self):
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
+
         from deerflow.sandbox.sandbox_provider import SandboxProvider
+
         assert issubclass(E2BSandboxProvider, SandboxProvider)
 
     @patch("crab_platform.sandbox.e2b_sandbox_provider.get_app_config")

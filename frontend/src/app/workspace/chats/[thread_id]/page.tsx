@@ -28,8 +28,25 @@ export default function ChatPage() {
   const { threadId, isNewThread, isMock, thread, sendMessage, isUploading } =
     useThreadChatRuntime();
   useSpecificChatMode();
+  const displayThread =
+    isNewThread && !thread.isLoading
+      ? ({
+          ...thread,
+          error: undefined,
+          messages: [],
+          values: {
+            ...thread.values,
+            title: "",
+            messages: [],
+            artifacts: [],
+            todos: [],
+          },
+        } as typeof thread)
+      : thread;
   const showNewThreadState =
-    isNewThread && thread.messages.length === 0 && !thread.isLoading;
+    isNewThread &&
+    displayThread.messages.length === 0 &&
+    !displayThread.isLoading;
 
   const handleSubmit = useCallback(
     (message: PromptInputMessage) => {
@@ -42,7 +59,7 @@ export default function ChatPage() {
   }, [thread]);
 
   return (
-    <ThreadContext.Provider value={{ thread, isMock }}>
+    <ThreadContext.Provider value={{ thread: displayThread, isMock }}>
       <ChatBox threadId={threadId}>
         <div className="relative flex size-full min-h-0 justify-between">
           <header
@@ -56,12 +73,12 @@ export default function ChatPage() {
             <div className="flex w-full items-center text-sm font-medium">
               <ThreadTitle
                 threadId={threadId}
-                thread={thread}
+                thread={displayThread}
                 isNewThread={showNewThreadState}
               />
             </div>
             <div className="flex items-center gap-2">
-              <TokenUsageIndicator messages={thread.messages} />
+              <TokenUsageIndicator messages={displayThread.messages} />
               <ExportTrigger threadId={threadId} />
               <ArtifactTrigger />
             </div>
@@ -71,7 +88,7 @@ export default function ChatPage() {
               <MessageList
                 className={cn("size-full", !showNewThreadState && "pt-10")}
                 threadId={threadId}
-                thread={thread}
+                thread={displayThread}
               />
             </div>
             <div className="absolute right-0 bottom-0 left-0 z-30 flex justify-center px-4">
@@ -88,9 +105,10 @@ export default function ChatPage() {
                   <div className="absolute right-0 bottom-0 left-0">
                     <TodoList
                       className="bg-background/5"
-                      todos={thread.values.todos ?? []}
+                      todos={displayThread.values.todos ?? []}
                       hidden={
-                        !thread.values.todos || thread.values.todos.length === 0
+                        !displayThread.values.todos ||
+                        displayThread.values.todos.length === 0
                       }
                     />
                   </div>
@@ -101,9 +119,9 @@ export default function ChatPage() {
                   threadId={threadId}
                   autoFocus={showNewThreadState}
                   status={
-                    thread.error
+                    displayThread.error
                       ? "error"
-                      : thread.isLoading
+                      : displayThread.isLoading
                         ? "streaming"
                         : "ready"
                   }

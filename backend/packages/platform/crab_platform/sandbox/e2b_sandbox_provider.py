@@ -28,17 +28,15 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select, update
 
+from crab_platform.sandbox.e2b_sandbox import E2BSandbox
+from crab_platform.sandbox.path_mapping import E2BPathMapping, build_e2b_path_mapping
 from deerflow.config import get_app_config
 from deerflow.sandbox.sandbox import Sandbox
 from deerflow.sandbox.sandbox_provider import SandboxProvider
 
-from crab_platform.sandbox.e2b_sandbox import E2BSandbox
-from crab_platform.sandbox.path_mapping import E2BPathMapping, build_e2b_path_mapping
-
 if TYPE_CHECKING:
     from e2b import Sandbox as E2BSdkSandbox
-    from sqlalchemy.ext.asyncio import AsyncEngine
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 logger = logging.getLogger(__name__)
 
@@ -412,10 +410,29 @@ class E2BSandboxProvider(SandboxProvider):
                     path_mapping=self._path_mapping,
                 )
             )
-            if count > 0:
+            if count:
                 logger.info("Injected %d files into E2B sandbox %s", count, sandbox_id)
         except Exception:
             logger.warning("Failed to inject files into E2B sandbox %s", sandbox_id, exc_info=True)
+
+        # Inject shared platform skills from the local filesystem so the
+        # prompt-advertised /mnt/skills paths are real inside E2B.
+        try:
+            from crab_platform.sandbox.file_injector import inject_platform_skills
+            platform_skill_count = self._run_async(
+                inject_platform_skills(
+                    e2b_sbx,
+                    path_mapping=self._path_mapping,
+                )
+            )
+            if platform_skill_count:
+                logger.info(
+                    "Injected %d platform skill files into E2B sandbox %s",
+                    platform_skill_count,
+                    sandbox_id,
+                )
+        except Exception:
+            logger.warning("Failed to inject platform skills into E2B sandbox %s", sandbox_id, exc_info=True)
 
         # Inject custom user skill directories so prompt-advertised skills are executable.
         try:
@@ -428,7 +445,7 @@ class E2BSandboxProvider(SandboxProvider):
                     path_mapping=self._path_mapping,
                 )
             )
-            if skill_count > 0:
+            if skill_count:
                 logger.info("Injected %d custom skill files into E2B sandbox %s", skill_count, sandbox_id)
         except Exception:
             logger.warning("Failed to inject custom skills into E2B sandbox %s", sandbox_id, exc_info=True)
@@ -446,6 +463,8 @@ class E2BSandboxProvider(SandboxProvider):
             path_mapping.actual_workspace_dir,
             path_mapping.actual_uploads_dir,
             path_mapping.actual_outputs_dir,
+            path_mapping.actual_skills_root,
+            path_mapping.actual_public_skills_dir,
             path_mapping.actual_custom_skills_dir,
             path_mapping.actual_acp_workspace_root,
         ):

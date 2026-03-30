@@ -9,6 +9,7 @@ import type { PromptInputMessage } from "@/components/ai-elements/prompt-input";
 
 import { getAPIClient } from "../api";
 import { useI18n } from "../i18n/hooks";
+import { dedupeMessagesById } from "../messages/utils";
 import type { FileInMessage } from "../messages/utils";
 import type { LocalSettings } from "../settings";
 import { useUpdateSubtask } from "../tasks/context";
@@ -173,22 +174,27 @@ export function useThreadStream({
     },
   });
 
+  const streamValues = thread.values;
+  const streamMessages = dedupeMessagesById(
+    Array.isArray(streamValues.messages) ? streamValues.messages : [],
+  );
+
   // Optimistic messages shown before the server stream responds
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const sendInFlightRef = useRef(false);
   // Track message count before sending so we know when server has responded
-  const prevMsgCountRef = useRef(thread.messages.length);
+  const prevMsgCountRef = useRef(streamMessages.length);
 
   // Clear optimistic when server messages arrive (count increases)
   useEffect(() => {
     if (
       optimisticMessages.length > 0 &&
-      thread.messages.length > prevMsgCountRef.current
+      streamMessages.length > prevMsgCountRef.current
     ) {
       setOptimisticMessages([]);
     }
-  }, [thread.messages.length, optimisticMessages.length]);
+  }, [streamMessages.length, optimisticMessages.length]);
 
   const sendMessage = useCallback(
     async (
@@ -204,7 +210,7 @@ export function useThreadStream({
       const text = message.text.trim();
 
       // Capture current count before showing optimistic messages
-      prevMsgCountRef.current = thread.messages.length;
+      prevMsgCountRef.current = streamMessages.length;
 
       // Build optimistic files list with uploading status
       const optimisticFiles: FileInMessage[] = (message.files ?? []).map(
@@ -384,17 +390,42 @@ export function useThreadStream({
         sendInFlightRef.current = false;
       }
     },
-    [thread, t.uploads.uploadingFiles, context, queryClient],
+    [thread, streamMessages.length, t.uploads.uploadingFiles, context, queryClient],
   );
 
-  // Merge thread with optimistic messages for display
-  const mergedThread =
+  const mergedMessages =
     optimisticMessages.length > 0
-      ? ({
-          ...thread,
-          messages: [...thread.messages, ...optimisticMessages],
-        } as typeof thread)
-      : thread;
+      ? [...streamMessages, ...optimisticMessages]
+      : streamMessages;
+
+  const mergedValues =
+    streamValues.messages === mergedMessages
+      ? streamValues
+      : {
+          ...streamValues,
+          messages: mergedMessages,
+        };
+
+  // Build a stable thread view from values.messages so we don't transiently
+  // render both the streamed message tuple and the final values snapshot.
+  const mergedThread = {
+    values: mergedValues,
+    error: thread.error,
+    isLoading: thread.isLoading,
+    isThreadLoading: thread.isThreadLoading,
+    messages: mergedMessages,
+    interrupt: thread.interrupt,
+    stop: thread.stop,
+    submit: thread.submit,
+    branch: thread.branch,
+    setBranch: thread.setBranch,
+    history: thread.history,
+    experimental_branchTree: thread.experimental_branchTree,
+    getMessagesMetadata: thread.getMessagesMetadata,
+    client: thread.client,
+    assistantId: thread.assistantId,
+    joinStream: thread.joinStream,
+  } as typeof thread;
 
   return [mergedThread, sendMessage, isUploading] as const;
 }

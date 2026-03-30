@@ -644,9 +644,6 @@ async def stream_run(
 
     async def run_agent_stream() -> None:
         """Run the agent independently from the client connection."""
-        from langchain_core.messages import message_chunk_to_message
-
-        messages: list[Any] = []
         title: str | None = None
         artifacts: list[Any] = []
         todos: list[Any] = []
@@ -661,7 +658,6 @@ async def stream_run(
             artifacts,
             todos,
         )
-        streamed_message_accumulators: dict[str, Any] = {}
         existing_message_ids = {
             str(msg["id"])
             for msg in (checkpoint_state or {}).get("messages", [])
@@ -716,7 +712,6 @@ async def stream_run(
                 # We need both:
                 # - messages: token/message chunks for incremental UI rendering
                 # - values: full state snapshots for thread state + persistence
-                streamed_message_ids: set[str] = set()
                 internal_stream_message_ids: set[str] = set()
 
                 async for mode, data in agent.astream(
@@ -758,28 +753,6 @@ async def stream_run(
                                 run_id,
                             )
                             continue
-                        if isinstance(stream_message_id, str) and stream_message_id not in existing_message_ids:
-                            streamed_message_ids.add(stream_message_id)
-                            accumulated_message = streamed_message_accumulators.get(stream_message_id)
-                            if accumulated_message is None:
-                                accumulated_message = streamed_message
-                            else:
-                                try:
-                                    accumulated_message = accumulated_message + streamed_message
-                                except TypeError:
-                                    accumulated_message = streamed_message
-                            streamed_message_accumulators[stream_message_id] = accumulated_message
-                            full_message = message_chunk_to_message(accumulated_message)
-                            full_state_messages = _merge_serialized_messages(
-                                full_state_messages,
-                                [_serialize_langchain_message(full_message)],
-                            )
-                            live_stream.latest_values_payload = _serialize_values_payload(
-                                full_state_messages,
-                                title,
-                                artifacts,
-                                todos,
-                            )
                         message_metadata["run_id"] = str(run_id)
                         await _publish_run_live_event(
                             run_id,
@@ -807,8 +780,6 @@ async def stream_run(
                         if isinstance(msg_id, str) and msg_id in internal_stream_message_ids:
                             continue
                         serialized.append(s)
-                        if isinstance(msg_id, str) and msg_id not in existing_message_ids:
-                            streamed_message_ids.add(msg_id)
 
                     full_state_messages = _merge_serialized_messages(
                         full_state_messages,

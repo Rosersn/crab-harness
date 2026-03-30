@@ -546,9 +546,15 @@ summarization:
 # ============================================================================
 # Global memory mechanism
 # Stores user context and conversation history for personalized responses
+#
+# NOTE: In Gateway (multi-tenant) mode, memory is stored in PostgreSQL via
+# PGMemoryStorage — the `storage_path` and `storage_class` fields below are
+# IGNORED. They only take effect in embedded/single-user mode (DeerFlowClient).
+# All other fields (enabled, debounce_seconds, model_name, max_facts, etc.)
+# still apply in both modes.
 memory:
   enabled: true
-  storage_path: memory.json # Path relative to backend directory
+  storage_path: memory.json # Only used in embedded mode; ignored by Gateway (PG storage)
   debounce_seconds: 30 # Wait time before processing queued updates
   model_name: null # Use default model
   max_facts: 100 # Maximum number of facts to store

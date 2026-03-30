@@ -67,6 +67,10 @@ class E2BPathMapping:
         return _join(self.actual_skills_root, "custom")
 
     @property
+    def actual_public_skills_dir(self) -> str:
+        return _join(self.actual_skills_root, "public")
+
+    @property
     def actual_replacements(self) -> list[tuple[str, str]]:
         return [
             (self.actual_user_data_root, self.virtual_user_data_root),

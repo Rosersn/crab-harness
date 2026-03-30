@@ -373,3 +373,31 @@ export function parseUploadedFiles(content: string): FileInMessage[] {
 
   return files;
 }
+
+export function dedupeMessagesById<T extends Message>(messages: T[]): T[] {
+  if (messages.length <= 1) {
+    return messages;
+  }
+
+  const deduped: T[] = [];
+  const indexById = new Map<string, number>();
+
+  for (const message of messages) {
+    if (!message.id) {
+      deduped.push(message);
+      continue;
+    }
+
+    const existingIndex = indexById.get(message.id);
+    if (existingIndex === undefined) {
+      indexById.set(message.id, deduped.length);
+      deduped.push(message);
+      continue;
+    }
+
+    // Keep the original position but let the latest copy win.
+    deduped[existingIndex] = message;
+  }
+
+  return deduped;
+}

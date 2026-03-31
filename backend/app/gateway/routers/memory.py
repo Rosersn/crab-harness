@@ -1,15 +1,15 @@
 """Memory API router for retrieving and managing per-user memory data."""
 
+from crab_platform.auth.interface import AuthenticatedUser
+from crab_platform.db import get_db
+from crab_platform.db.repos.memory_repo import MemoryRepo
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.gateway.deps import get_current_user
-from crab_platform.auth.interface import AuthenticatedUser
-from crab_platform.db import get_db
-from crab_platform.db.repos.memory_repo import MemoryRepo
-from deerflow.agents.memory.storage import create_empty_memory
-from deerflow.config.memory_config import get_memory_config
+from crab.agents.memory.storage import create_empty_memory
+from crab.config.memory_config import get_memory_config
 
 router = APIRouter(prefix="/api", tags=["memory"])
 
@@ -98,7 +98,7 @@ async def get_memory(
             "version": "1.0",
             "lastUpdated": "2024-01-15T10:30:00Z",
             "user": {
-                "workContext": {"summary": "Working on DeerFlow project", "updatedAt": "..."},
+                "workContext": {"summary": "Working on Crab project", "updatedAt": "..."},
                 "personalContext": {"summary": "Prefers concise responses", "updatedAt": "..."},
                 "topOfMind": {"summary": "Building memory API", "updatedAt": "..."}
             },
@@ -168,7 +168,7 @@ async def get_memory_config_endpoint(
         ```json
         {
             "enabled": true,
-            "storage_path": ".deer-flow/memory.json",
+            "storage_path": ".crab-harness/memory.json",
             "debounce_seconds": 30,
             "max_facts": 100,
             "fact_confidence_threshold": 0.7,

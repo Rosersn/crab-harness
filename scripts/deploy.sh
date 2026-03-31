@@ -16,7 +16,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 DOCKER_DIR="$REPO_ROOT/docker"
-COMPOSE_CMD=(docker compose -p deer-flow -f "$DOCKER_DIR/docker-compose.yaml")
+COMPOSE_CMD=(docker compose -p crab-harness -f "$DOCKER_DIR/docker-compose.yaml")
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 
@@ -26,31 +26,31 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
-# ── DEER_FLOW_HOME ────────────────────────────────────────────────────────────
+# ── CRAB_HOME ────────────────────────────────────────────────────────────
 
-if [ -z "$DEER_FLOW_HOME" ]; then
-    export DEER_FLOW_HOME="$REPO_ROOT/backend/.deer-flow"
+if [ -z "$CRAB_HOME" ]; then
+    export CRAB_HOME="$REPO_ROOT/backend/.crab-harness"
 fi
-echo -e "${BLUE}DEER_FLOW_HOME=$DEER_FLOW_HOME${NC}"
-mkdir -p "$DEER_FLOW_HOME"
+echo -e "${BLUE}CRAB_HOME=$CRAB_HOME${NC}"
+mkdir -p "$CRAB_HOME"
 
-# ── DEER_FLOW_REPO_ROOT (for skills host path in DooD) ───────────────────────
+# ── CRAB_REPO_ROOT (for skills host path in DooD) ───────────────────────
 
-export DEER_FLOW_REPO_ROOT="$REPO_ROOT"
+export CRAB_REPO_ROOT="$REPO_ROOT"
 
 # ── config.yaml ───────────────────────────────────────────────────────────────
 
-if [ -z "$DEER_FLOW_CONFIG_PATH" ]; then
-    export DEER_FLOW_CONFIG_PATH="$REPO_ROOT/config.yaml"
+if [ -z "$CRAB_CONFIG_PATH" ]; then
+    export CRAB_CONFIG_PATH="$REPO_ROOT/config.yaml"
 fi
 
-if [ ! -f "$DEER_FLOW_CONFIG_PATH" ]; then
+if [ ! -f "$CRAB_CONFIG_PATH" ]; then
     # Try to seed from repo (config.example.yaml is the canonical template)
     if [ -f "$REPO_ROOT/config.example.yaml" ]; then
-        cp "$REPO_ROOT/config.example.yaml" "$DEER_FLOW_CONFIG_PATH"
-        echo -e "${GREEN}✓ Seeded config.example.yaml → $DEER_FLOW_CONFIG_PATH${NC}"
+        cp "$REPO_ROOT/config.example.yaml" "$CRAB_CONFIG_PATH"
+        echo -e "${GREEN}✓ Seeded config.example.yaml → $CRAB_CONFIG_PATH${NC}"
         echo -e "${YELLOW}⚠ config.yaml was seeded from the example template.${NC}"
-        echo "  Edit $DEER_FLOW_CONFIG_PATH and set your model API keys before use."
+        echo "  Edit $CRAB_CONFIG_PATH and set your model API keys before use."
     else
         echo -e "${RED}✗ No config.yaml found.${NC}"
         echo "  Run 'make config' from the repo root to generate one,"
@@ -58,26 +58,26 @@ if [ ! -f "$DEER_FLOW_CONFIG_PATH" ]; then
         exit 1
     fi
 else
-    echo -e "${GREEN}✓ config.yaml: $DEER_FLOW_CONFIG_PATH${NC}"
+    echo -e "${GREEN}✓ config.yaml: $CRAB_CONFIG_PATH${NC}"
 fi
 
 # ── extensions_config.json ───────────────────────────────────────────────────
 
-if [ -z "$DEER_FLOW_EXTENSIONS_CONFIG_PATH" ]; then
-    export DEER_FLOW_EXTENSIONS_CONFIG_PATH="$REPO_ROOT/extensions_config.json"
+if [ -z "$CRAB_EXTENSIONS_CONFIG_PATH" ]; then
+    export CRAB_EXTENSIONS_CONFIG_PATH="$REPO_ROOT/extensions_config.json"
 fi
 
-if [ ! -f "$DEER_FLOW_EXTENSIONS_CONFIG_PATH" ]; then
+if [ ! -f "$CRAB_EXTENSIONS_CONFIG_PATH" ]; then
     if [ -f "$REPO_ROOT/extensions_config.json" ]; then
-        cp "$REPO_ROOT/extensions_config.json" "$DEER_FLOW_EXTENSIONS_CONFIG_PATH"
-        echo -e "${GREEN}✓ Seeded extensions_config.json → $DEER_FLOW_EXTENSIONS_CONFIG_PATH${NC}"
+        cp "$REPO_ROOT/extensions_config.json" "$CRAB_EXTENSIONS_CONFIG_PATH"
+        echo -e "${GREEN}✓ Seeded extensions_config.json → $CRAB_EXTENSIONS_CONFIG_PATH${NC}"
     else
         # Create a minimal empty config so the gateway doesn't fail on startup
-        echo '{"mcpServers":{},"skills":{}}' > "$DEER_FLOW_EXTENSIONS_CONFIG_PATH"
-        echo -e "${YELLOW}⚠ extensions_config.json not found, created empty config at $DEER_FLOW_EXTENSIONS_CONFIG_PATH${NC}"
+        echo '{"mcpServers":{},"skills":{}}' > "$CRAB_EXTENSIONS_CONFIG_PATH"
+        echo -e "${YELLOW}⚠ extensions_config.json not found, created empty config at $CRAB_EXTENSIONS_CONFIG_PATH${NC}"
     fi
 else
-    echo -e "${GREEN}✓ extensions_config.json: $DEER_FLOW_EXTENSIONS_CONFIG_PATH${NC}"
+    echo -e "${GREEN}✓ extensions_config.json: $CRAB_EXTENSIONS_CONFIG_PATH${NC}"
 fi
 
 
@@ -85,7 +85,7 @@ fi
 # Required by Next.js in production. Generated once and persisted so auth
 # sessions survive container restarts.
 
-_secret_file="$DEER_FLOW_HOME/.better-auth-secret"
+_secret_file="$CRAB_HOME/.better-auth-secret"
 if [ -z "$BETTER_AUTH_SECRET" ]; then
     if [ -f "$_secret_file" ]; then
         export BETTER_AUTH_SECRET
@@ -106,7 +106,7 @@ detect_sandbox_mode() {
     local sandbox_use=""
     local provisioner_url=""
 
-    [ -f "$DEER_FLOW_CONFIG_PATH" ] || { echo "local"; return; }
+    [ -f "$CRAB_CONFIG_PATH" ] || { echo "local"; return; }
 
     sandbox_use=$(awk '
         /^[[:space:]]*sandbox:[[:space:]]*$/ { in_sandbox=1; next }
@@ -114,7 +114,7 @@ detect_sandbox_mode() {
         in_sandbox && /^[[:space:]]*use:[[:space:]]*/ {
             line=$0; sub(/^[[:space:]]*use:[[:space:]]*/, "", line); print line; exit
         }
-    ' "$DEER_FLOW_CONFIG_PATH")
+    ' "$CRAB_CONFIG_PATH")
 
     provisioner_url=$(awk '
         /^[[:space:]]*sandbox:[[:space:]]*$/ { in_sandbox=1; next }
@@ -122,9 +122,9 @@ detect_sandbox_mode() {
         in_sandbox && /^[[:space:]]*provisioner_url:[[:space:]]*/ {
             line=$0; sub(/^[[:space:]]*provisioner_url:[[:space:]]*/, "", line); print line; exit
         }
-    ' "$DEER_FLOW_CONFIG_PATH")
+    ' "$CRAB_CONFIG_PATH")
 
-    if [[ "$sandbox_use" == *"deerflow.community.aio_sandbox:AioSandboxProvider"* ]]; then
+    if [[ "$sandbox_use" == *"crab.community.aio_sandbox:AioSandboxProvider"* ]]; then
         if [ -n "$provisioner_url" ]; then
             echo "provisioner"
         else
@@ -140,11 +140,11 @@ detect_sandbox_mode() {
 if [ "$CMD" = "down" ]; then
     # Set minimal env var defaults so docker compose can parse the file without
     # warning about unset variables that appear in volume specs.
-    export DEER_FLOW_HOME="${DEER_FLOW_HOME:-$REPO_ROOT/backend/.deer-flow}"
-    export DEER_FLOW_CONFIG_PATH="${DEER_FLOW_CONFIG_PATH:-$DEER_FLOW_HOME/config.yaml}"
-    export DEER_FLOW_EXTENSIONS_CONFIG_PATH="${DEER_FLOW_EXTENSIONS_CONFIG_PATH:-$DEER_FLOW_HOME/extensions_config.json}"
-    export DEER_FLOW_DOCKER_SOCKET="${DEER_FLOW_DOCKER_SOCKET:-/var/run/docker.sock}"
-    export DEER_FLOW_REPO_ROOT="${DEER_FLOW_REPO_ROOT:-$REPO_ROOT}"
+    export CRAB_HOME="${CRAB_HOME:-$REPO_ROOT/backend/.crab-harness}"
+    export CRAB_CONFIG_PATH="${CRAB_CONFIG_PATH:-$CRAB_HOME/config.yaml}"
+    export CRAB_EXTENSIONS_CONFIG_PATH="${CRAB_EXTENSIONS_CONFIG_PATH:-$CRAB_HOME/extensions_config.json}"
+    export CRAB_DOCKER_SOCKET="${CRAB_DOCKER_SOCKET:-/var/run/docker.sock}"
+    export CRAB_REPO_ROOT="${CRAB_REPO_ROOT:-$REPO_ROOT}"
     export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-placeholder}"
     "${COMPOSE_CMD[@]}" down
     exit 0
@@ -171,19 +171,19 @@ else
 fi
 
 
-# ── DEER_FLOW_DOCKER_SOCKET ───────────────────────────────────────────────────
+# ── CRAB_DOCKER_SOCKET ───────────────────────────────────────────────────
 
-if [ -z "$DEER_FLOW_DOCKER_SOCKET" ]; then
-    export DEER_FLOW_DOCKER_SOCKET="/var/run/docker.sock"
+if [ -z "$CRAB_DOCKER_SOCKET" ]; then
+    export CRAB_DOCKER_SOCKET="/var/run/docker.sock"
 fi
 
 if [ "$sandbox_mode" != "local" ]; then
-    if [ ! -S "$DEER_FLOW_DOCKER_SOCKET" ]; then
-        echo -e "${RED}⚠ Docker socket not found at $DEER_FLOW_DOCKER_SOCKET${NC}"
+    if [ ! -S "$CRAB_DOCKER_SOCKET" ]; then
+        echo -e "${RED}⚠ Docker socket not found at $CRAB_DOCKER_SOCKET${NC}"
         echo "  AioSandboxProvider (DooD) will not work."
         exit 1
     else
-        echo -e "${GREEN}✓ Docker socket: $DEER_FLOW_DOCKER_SOCKET${NC}"
+        echo -e "${GREEN}✓ Docker socket: $CRAB_DOCKER_SOCKET${NC}"
     fi
 fi
 

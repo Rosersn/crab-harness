@@ -131,9 +131,17 @@ export function ThreadChatProvider({ children }: { children: ReactNode }) {
       message: PromptInputMessage,
       extraContext?: Record<string, unknown>,
     ) => {
+      // Navigate immediately for new threads so the user sees the chat page
+      // without waiting for the (potentially slow) file upload to finish.
+      if (isNewThread && threadIdFromPath === "new") {
+        pendingRouteThreadIdRef.current = threadId;
+        startTransition(() => {
+          router.replace(`/workspace/chats/${threadId}`);
+        });
+      }
       return sendMessageForThread(threadId, message, extraContext);
     },
-    [sendMessageForThread, threadId],
+    [sendMessageForThread, threadId, isNewThread, threadIdFromPath, router],
   );
 
   const value = useMemo<ThreadChatRuntimeValue>(

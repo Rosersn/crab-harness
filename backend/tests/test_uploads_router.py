@@ -466,7 +466,7 @@ def test_delete_uploaded_file_removes_from_bos_and_pg():
         patch.object(uploads, "get_object_storage", return_value=storage),
         patch("app.gateway.routers.uploads.UploadRepo", return_value=repo_mock),
         patch("app.gateway.routers.uploads._verify_thread_ownership", new_callable=AsyncMock),
-        patch("deerflow.uploads.manager.get_uploads_dir", side_effect=ValueError("no dir")),
+        patch("crab.uploads.manager.get_uploads_dir", side_effect=ValueError("no dir")),
     ):
         result = asyncio.run(
             uploads.delete_uploaded_file(

@@ -8,7 +8,6 @@ the local sandbox — at that point files will be injected from BOS directly.
 """
 
 import asyncio
-
 import logging
 import os
 import stat
@@ -16,26 +15,26 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.gateway.deps import get_current_user
 from crab_platform.auth.interface import AuthenticatedUser
 from crab_platform.db import get_db
 from crab_platform.db.repos.thread_repo import ThreadRepo
 from crab_platform.db.repos.upload_repo import UploadRepo
 from crab_platform.storage import get_object_storage
-from deerflow.config.paths import get_paths
-from deerflow.sandbox.sandbox_provider import get_sandbox_provider
-from deerflow.uploads.manager import (
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.gateway.deps import get_current_user
+from crab.config.paths import get_paths
+from crab.sandbox.sandbox_provider import get_sandbox_provider
+from crab.uploads.manager import (
     claim_unique_filename,
     ensure_uploads_dir,
     normalize_filename,
     upload_artifact_url,
     upload_virtual_path,
 )
-from deerflow.utils.file_conversion import CONVERTIBLE_EXTENSIONS, convert_file_to_markdown
+from crab.utils.file_conversion import CONVERTIBLE_EXTENSIONS, convert_file_to_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -454,7 +453,7 @@ async def delete_uploaded_file(
 
     # Delete from local thread directory (best-effort)
     try:
-        from deerflow.uploads.manager import get_uploads_dir
+        from crab.uploads.manager import get_uploads_dir
         local_dir = get_uploads_dir(thread_id)
         local_file = local_dir / filename
         if local_file.is_file():

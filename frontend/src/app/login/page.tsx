@@ -102,7 +102,7 @@ export default function LoginPage() {
             className="text-sm text-white/70 transition hover:text-white"
             href="/"
           >
-            DeerFlow
+            Crab
           </Link>
           <Link
             className="text-sm text-white/70 transition hover:text-white"

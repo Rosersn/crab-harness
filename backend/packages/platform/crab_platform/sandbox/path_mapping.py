@@ -6,13 +6,13 @@ import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-from deerflow.config.paths import VIRTUAL_PATH_PREFIX
+from crab.config.paths import VIRTUAL_PATH_PREFIX
 
 _DEFAULT_VIRTUAL_SKILLS_ROOT = "/mnt/skills"
 _DEFAULT_VIRTUAL_ACP_ROOT = "/mnt/acp-workspace"
-_DEFAULT_ACTUAL_USER_DATA_ROOT = "/home/user/.deerflow/user-data"
-_DEFAULT_ACTUAL_SKILLS_ROOT = "/home/user/.deerflow/skills"
-_DEFAULT_ACTUAL_ACP_ROOT = "/home/user/.deerflow/acp-workspace"
+_DEFAULT_ACTUAL_USER_DATA_ROOT = "/home/user/.crab-harness/user-data"
+_DEFAULT_ACTUAL_SKILLS_ROOT = "/home/user/.crab-harness/skills"
+_DEFAULT_ACTUAL_ACP_ROOT = "/home/user/.crab-harness/acp-workspace"
 
 
 def _replace_prefixes(text: str, replacements: list[tuple[str, str]]) -> str:
@@ -36,7 +36,7 @@ def _string_attr(obj: object, name: str) -> str | None:
 
 @dataclass(frozen=True)
 class E2BPathMapping:
-    """Describes how DeerFlow virtual sandbox paths map into E2B paths."""
+    """Describes how Crab virtual sandbox paths map into E2B paths."""
 
     virtual_user_data_root: str = VIRTUAL_PATH_PREFIX
     actual_user_data_root: str = _DEFAULT_ACTUAL_USER_DATA_ROOT
@@ -111,7 +111,7 @@ class E2BPathMapping:
 
 def build_e2b_path_mapping() -> E2BPathMapping:
     """Build the E2B path mapping from the active app config."""
-    from deerflow.config import get_app_config
+    from crab.config import get_app_config
 
     config = get_app_config()
     sandbox_config = config.sandbox

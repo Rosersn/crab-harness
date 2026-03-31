@@ -17,8 +17,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncEngine
-    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 logger = logging.getLogger(__name__)
 

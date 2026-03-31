@@ -4,6 +4,8 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from crab_platform.auth.interface import AuthenticatedUser
+from crab_platform.db import get_db
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import Request
@@ -11,8 +13,6 @@ from starlette.responses import FileResponse
 
 import app.gateway.routers.artifacts as artifacts_router
 from app.gateway.deps import get_current_user
-from crab_platform.auth.interface import AuthenticatedUser
-from crab_platform.db import get_db
 
 ACTIVE_ARTIFACT_CASES = [
     ("poc.html", "<html><body><script>alert('xss')</script></body></html>"),

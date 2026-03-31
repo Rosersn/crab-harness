@@ -6,15 +6,15 @@ Per-user skill enable/disable state and custom skills are stored in PostgreSQL.
 
 import logging
 
+from crab_platform.auth.interface import AuthenticatedUser
+from crab_platform.db import get_db
+from crab_platform.db.repos.skill_config_repo import SkillConfigRepo
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.gateway.deps import get_current_user
-from crab_platform.auth.interface import AuthenticatedUser
-from crab_platform.db import get_db
-from crab_platform.db.repos.skill_config_repo import SkillConfigRepo
-from deerflow.skills import Skill, load_skills
+from crab.skills import Skill, load_skills
 
 logger = logging.getLogger(__name__)
 

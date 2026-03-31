@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-# Make 'app' and 'deerflow' importable from any working directory
+# Make 'app' and 'crab' importable from any working directory
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Set a valid CRAB_JWT_SECRET for tests (PlatformConfig validates it).
@@ -17,15 +17,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 os.environ.setdefault("CRAB_JWT_SECRET", "test-jwt-secret-for-unit-tests-must-be-32-chars-long")
 
 # Break the circular import chain that exists in production code:
-#   deerflow.subagents.__init__
+#   crab.subagents.__init__
 #     -> .executor (SubagentExecutor, SubagentResult)
-#       -> deerflow.agents.thread_state
-#         -> deerflow.agents.__init__
+#       -> crab.agents.thread_state
+#         -> crab.agents.__init__
 #           -> lead_agent.agent
 #             -> subagent_limit_middleware
-#               -> deerflow.subagents.executor  <-- circular!
+#               -> crab.subagents.executor  <-- circular!
 #
-# By injecting a mock for deerflow.subagents.executor *before* any test module
+# By injecting a mock for crab.subagents.executor *before* any test module
 # triggers the import, __init__.py's "from .executor import ..." succeeds
 # immediately without running the real executor module.
 _executor_mock = MagicMock()
@@ -35,4 +35,4 @@ _executor_mock.SubagentStatus = MagicMock
 _executor_mock.MAX_CONCURRENT_SUBAGENTS = 3
 _executor_mock.get_background_task_result = MagicMock()
 
-sys.modules["deerflow.subagents.executor"] = _executor_mock
+sys.modules["crab.subagents.executor"] = _executor_mock

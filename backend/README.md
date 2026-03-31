@@ -1,6 +1,6 @@
-# DeerFlow Backend
+# Crab Backend
 
-DeerFlow is a LangGraph-based AI super agent with sandbox execution, persistent memory, and extensible tool integration. The backend enables AI agents to execute code, browse the web, manage files, delegate tasks to subagents, and retain context across conversations - all in isolated, per-thread environments.
+Crab is a LangGraph-based AI super agent with sandbox execution, persistent memory, and extensible tool integration. The backend enables AI agents to execute code, browse the web, manage files, delegate tasks to subagents, and retain context across conversations - all in isolated, per-thread environments.
 
 ---
 
@@ -76,7 +76,7 @@ Per-thread isolated execution with virtual path translation:
 - **Abstract interface**: `execute_command`, `read_file`, `write_file`, `list_dir`
 - **Providers**: `LocalSandboxProvider` (filesystem), `AioSandboxProvider` (Docker, in community/), and `E2BSandboxProvider` (E2B cloud VM, in platform/)
 - **Virtual paths**: `/mnt/user-data/{workspace,uploads,outputs}` → thread-specific physical directories
-- **Skills path**: `/mnt/skills` → `deer-flow/skills/` directory
+- **Skills path**: `/mnt/skills` → `crab-harness/skills/` directory
 - **Skills loading**: Recursively discovers nested `SKILL.md` files under `skills/{public,custom}` and preserves nested container paths
 - **Tools**: `bash`, `ls`, `read_file`, `write_file`, `str_replace`
 
@@ -125,14 +125,14 @@ FastAPI application providing REST endpoints for frontend integration:
 | `GET /api/memory/status` | Combined config + data |
 | `POST /api/threads/{id}/uploads` | Upload files (auto-converts PDF/PPT/Excel/Word to Markdown, rejects directory paths) |
 | `GET /api/threads/{id}/uploads/list` | List uploaded files |
-| `DELETE /api/threads/{id}` | Delete DeerFlow-managed local thread data after LangGraph thread deletion; unexpected failures are logged server-side and return a generic 500 detail |
+| `DELETE /api/threads/{id}` | Delete Crab-managed local thread data after LangGraph thread deletion; unexpected failures are logged server-side and return a generic 500 detail |
 | `GET /api/threads/{id}/artifacts/{path}` | Serve generated artifacts |
 
 ### IM Channels
 
 The IM bridge supports Feishu, Slack, and Telegram. Slack and Telegram still use the final `runs.wait()` response path, while Feishu now streams through `runs.stream(["messages-tuple", "values"])` and updates a single in-thread card in place.
 
-For Feishu card updates, DeerFlow stores the running card's `message_id` per inbound message and patches that same card until the run finishes, preserving the existing `OK` / `DONE` reaction flow.
+For Feishu card updates, Crab stores the running card's `message_id` per inbound message and patches that same card until the run finishes, preserving the existing `OK` / `DONE` reaction flow.
 
 ---
 
@@ -147,7 +147,7 @@ For Feishu card updates, DeerFlow stores the running card's `message_id` per inb
 ### Installation
 
 ```bash
-cd deer-flow
+cd crab-harness
 
 # Copy configuration files
 cp config.example.yaml config.yaml
@@ -270,7 +270,7 @@ Key sections:
 
 Provider note:
 - `models[*].use` references provider classes by module path (for example `langchain_openai:ChatOpenAI`).
-- If a provider module is missing, DeerFlow now returns an actionable error with install guidance (for example `uv add langchain-google-genai`).
+- If a provider module is missing, Crab now returns an actionable error with install guidance (for example `uv add langchain-google-genai`).
 
 ### Extensions Configuration (`extensions_config.json`)
 
@@ -307,14 +307,14 @@ MCP servers and skill states in a single file:
 
 ### Environment Variables
 
-- `DEER_FLOW_CONFIG_PATH` - Override config.yaml location
-- `DEER_FLOW_EXTENSIONS_CONFIG_PATH` - Override extensions_config.json location
+- `CRAB_CONFIG_PATH` - Override config.yaml location
+- `CRAB_EXTENSIONS_CONFIG_PATH` - Override extensions_config.json location
 - Model API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, etc.
 - Tool API keys: `TAVILY_API_KEY`, `GITHUB_TOKEN`, etc.
 
 ### LangSmith Tracing
 
-DeerFlow has built-in [LangSmith](https://smith.langchain.com) integration for observability. When enabled, all LLM calls, agent runs, tool executions, and middleware processing are traced and visible in the LangSmith dashboard.
+Crab has built-in [LangSmith](https://smith.langchain.com) integration for observability. When enabled, all LLM calls, agent runs, tool executions, and middleware processing are traced and visible in the LangSmith dashboard.
 
 **Setup:**
 
@@ -391,6 +391,6 @@ uv run pytest
 
 See the [LICENSE](../LICENSE) file in the project root.
 
-## Contributing
+## License
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+[MIT License](../LICENSE)

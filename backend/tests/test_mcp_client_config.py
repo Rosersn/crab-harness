@@ -2,8 +2,8 @@
 
 import pytest
 
-from deerflow.config.extensions_config import ExtensionsConfig, McpServerConfig
-from deerflow.mcp.client import build_server_params, build_servers_config
+from crab.config.extensions_config import ExtensionsConfig, McpServerConfig
+from crab.mcp.client import build_server_params, build_servers_config
 
 
 def test_build_server_params_stdio_success():

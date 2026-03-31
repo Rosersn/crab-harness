@@ -1,6 +1,6 @@
 # Plan Mode with TodoList Middleware
 
-This document describes how to enable and use the Plan Mode feature with TodoList middleware in DeerFlow 2.0.
+This document describes how to enable and use the Plan Mode feature with TodoList middleware in Crab 2.0.
 
 ## Overview
 
@@ -19,7 +19,7 @@ Plan mode is controlled via **runtime configuration** through the `is_plan_mode`
 
 ```python
 from langchain_core.runnables import RunnableConfig
-from deerflow.agents.lead_agent.agent import make_lead_agent
+from crab.agents.lead_agent.agent import make_lead_agent
 
 # Enable plan mode via runtime configuration
 config = RunnableConfig(
@@ -72,7 +72,7 @@ The agent will skip using the todo list for:
 
 ```python
 from langchain_core.runnables import RunnableConfig
-from deerflow.agents.lead_agent.agent import make_lead_agent
+from crab.agents.lead_agent.agent import make_lead_agent
 
 # Create agent with plan mode ENABLED
 config_with_plan_mode = RunnableConfig(
@@ -101,7 +101,7 @@ You can enable/disable plan mode dynamically for different conversations or task
 
 ```python
 from langchain_core.runnables import RunnableConfig
-from deerflow.agents.lead_agent.agent import make_lead_agent
+from crab.agents.lead_agent.agent import make_lead_agent
 
 def create_agent_for_task(task_complexity: str):
     """Create agent with plan mode based on task complexity."""
@@ -154,7 +154,7 @@ make_lead_agent(config)
 ## Implementation Details
 
 ### Agent Module
-- **Location**: `packages/harness/deerflow/agents/lead_agent/agent.py`
+- **Location**: `packages/harness/crab/agents/lead_agent/agent.py`
 - **Function**: `_create_todo_list_middleware(is_plan_mode: bool)` - Creates TodoListMiddleware if plan mode is enabled
 - **Function**: `_build_middlewares(config: RunnableConfig)` - Builds middleware chain based on runtime config
 - **Function**: `make_lead_agent(config: RunnableConfig)` - Creates agent with appropriate middlewares
@@ -179,10 +179,10 @@ config = RunnableConfig(
 
 ## Custom Prompts
 
-DeerFlow uses custom `system_prompt` and `tool_description` for the TodoListMiddleware that match the overall DeerFlow prompt style:
+Crab uses custom `system_prompt` and `tool_description` for the TodoListMiddleware that match the overall Crab prompt style:
 
 ### System Prompt Features
-- Uses XML tags (`<todo_list_system>`) for structure consistency with DeerFlow's main prompt
+- Uses XML tags (`<todo_list_system>`) for structure consistency with Crab's main prompt
 - Emphasizes CRITICAL rules and best practices
 - Clear "When to Use" vs "When NOT to Use" guidelines
 - Focuses on real-time updates and immediate task completion
@@ -194,11 +194,11 @@ DeerFlow uses custom `system_prompt` and `tool_description` for the TodoListMidd
 - Comprehensive best practices section
 - Task completion requirements to prevent premature marking
 
-The custom prompts are defined in `_create_todo_list_middleware()` in `/Users/hetao/workspace/deer-flow/backend/packages/harness/deerflow/agents/lead_agent/agent.py:57`.
+The custom prompts are defined in `_create_todo_list_middleware()` in `/Users/hetao/workspace/crab-harness/backend/packages/harness/crab/agents/lead_agent/agent.py:57`.
 
 ## Notes
 
-- TodoList middleware uses LangChain's built-in `TodoListMiddleware` with **custom DeerFlow-style prompts**
+- TodoList middleware uses LangChain's built-in `TodoListMiddleware` with **custom Crab-style prompts**
 - Plan mode is **disabled by default** (`is_plan_mode=False`) to maintain backward compatibility
 - The middleware is positioned before `ClarificationMiddleware` to allow todo management during clarification flows
-- Custom prompts emphasize the same principles as DeerFlow's main system prompt (clarity, action-oriented, critical rules)
+- Custom prompts emphasize the same principles as Crab's main system prompt (clarity, action-oriented, critical rules)

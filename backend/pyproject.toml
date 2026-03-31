@@ -1,11 +1,11 @@
 [project]
-name = "crab-harness"
+name = "crab-harness-backend"
 version = "0.1.0"
 description = "Multi-tenant AI Agent platform with sandbox execution capabilities"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "deerflow-harness",
+    "crab-harness",
     "crab-platform",
     "fastapi>=0.115.0",
     "httpx>=0.28.0",
@@ -22,5 +22,5 @@ dev = ["pytest>=8.0.0", "ruff>=0.14.11", "pytest-asyncio>=0.24.0", "httpx>=0.28.
 members = ["packages/harness", "packages/platform"]
 
 [tool.uv.sources]
-deerflow-harness = { workspace = true }
+crab-harness = { workspace = true }
 crab-platform = { workspace = true }

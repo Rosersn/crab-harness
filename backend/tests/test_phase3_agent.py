@@ -4,7 +4,6 @@ import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -65,7 +64,7 @@ class TestMemoryInjector:
         config.injection_enabled = True
 
         with patch("crab_platform.agent.memory_injector.MemoryRepo"):
-            with patch("deerflow.config.memory_config.get_memory_config", return_value=config):
+            with patch("crab.config.memory_config.get_memory_config", return_value=config):
                 result = asyncio.run(format_user_memory_context(db, _fake_user_id()))
 
         assert result == ""
@@ -99,7 +98,7 @@ class TestMemoryInjector:
 
         with (
             patch("crab_platform.agent.memory_injector.MemoryRepo", return_value=repo_mock),
-            patch("deerflow.config.memory_config.get_memory_config", return_value=config),
+            patch("crab.config.memory_config.get_memory_config", return_value=config),
         ):
             result = asyncio.run(format_user_memory_context(db, _fake_user_id()))
 
@@ -146,7 +145,7 @@ class TestSkillLoader:
         repo_mock.list_for_user = AsyncMock(return_value=[override_a, override_c])
 
         with (
-            patch("deerflow.skills.load_skills", return_value=[s_a, s_b, s_c]),
+            patch("crab.skills.load_skills", return_value=[s_a, s_b, s_c]),
             patch("crab_platform.agent.skill_loader.SkillConfigRepo", return_value=repo_mock),
         ):
             result = asyncio.run(load_user_skills(db, user_id, enabled_only=True))
@@ -169,7 +168,7 @@ class TestSkillLoader:
         repo_mock.list_for_user = AsyncMock(return_value=[])
 
         with (
-            patch("deerflow.skills.load_skills", return_value=[s1, s2]),
+            patch("crab.skills.load_skills", return_value=[s1, s2]),
             patch("crab_platform.agent.skill_loader.SkillConfigRepo", return_value=repo_mock),
         ):
             names = asyncio.run(get_user_enabled_skill_names(db, user_id))
@@ -235,7 +234,7 @@ class TestToolAssembler:
         platform_tools = [tool1]
 
         with (
-            patch("deerflow.tools.get_available_tools", return_value=platform_tools),
+            patch("crab.tools.get_available_tools", return_value=platform_tools),
             patch("crab_platform.agent.mcp_loader.load_user_mcp_tools", new_callable=AsyncMock, return_value=[]),
         ):
             tools = asyncio.run(assemble_user_tools(db, user_id))
@@ -255,7 +254,7 @@ class TestToolAssembler:
         user_tool.name = "user-mcp-tool"
 
         with (
-            patch("deerflow.tools.get_available_tools", return_value=[platform_tool]),
+            patch("crab.tools.get_available_tools", return_value=[platform_tool]),
             patch("crab_platform.agent.mcp_loader.load_user_mcp_tools", new_callable=AsyncMock, return_value=[user_tool]),
         ):
             tools = asyncio.run(assemble_user_tools(db, user_id))
@@ -276,7 +275,7 @@ class TestToolAssembler:
         user_tool.name = "shared-name"  # same name as platform
 
         with (
-            patch("deerflow.tools.get_available_tools", return_value=[platform_tool]),
+            patch("crab.tools.get_available_tools", return_value=[platform_tool]),
             patch("crab_platform.agent.mcp_loader.load_user_mcp_tools", new_callable=AsyncMock, return_value=[user_tool]),
         ):
             tools = asyncio.run(assemble_user_tools(db, user_id))

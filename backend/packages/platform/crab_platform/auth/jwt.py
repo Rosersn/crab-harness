@@ -9,7 +9,7 @@ import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from crab_platform.auth.interface import AuthenticatedUser, AuthProvider
+from crab_platform.auth.interface import AuthenticatedUser
 from crab_platform.auth.password import verify_password
 from crab_platform.config.platform_config import get_platform_config
 from crab_platform.db.models import User

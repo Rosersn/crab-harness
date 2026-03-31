@@ -1,9 +1,9 @@
+from crab_platform.auth.interface import AuthenticatedUser
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.gateway.deps import get_current_user
-from crab_platform.auth.interface import AuthenticatedUser
-from deerflow.config import get_app_config
+from crab.config import get_app_config
 
 router = APIRouter(prefix="/api", tags=["models"])
 

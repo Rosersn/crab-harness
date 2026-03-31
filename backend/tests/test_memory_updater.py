@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from deerflow.agents.memory.prompt import format_conversation_for_update
-from deerflow.agents.memory.updater import MemoryUpdater, _extract_text
-from deerflow.config.memory_config import MemoryConfig
+from crab.agents.memory.prompt import format_conversation_for_update
+from crab.agents.memory.updater import MemoryUpdater, _extract_text
+from crab.config.memory_config import MemoryConfig
 
 
 def _make_memory(facts: list[dict[str, object]] | None = None) -> dict[str, object]:
@@ -60,7 +60,7 @@ def test_apply_updates_skips_existing_duplicate_and_preserves_removals() -> None
     }
 
     with patch(
-        "deerflow.agents.memory.updater.get_memory_config",
+        "crab.agents.memory.updater.get_memory_config",
         return_value=_memory_config(max_facts=100, fact_confidence_threshold=0.7),
     ):
         result = updater._apply_updates(current_memory, update_data, thread_id="thread-b")
@@ -76,19 +76,19 @@ def test_apply_updates_skips_same_batch_duplicates_and_keeps_source_metadata() -
         "newFacts": [
             {"content": "User prefers dark mode", "category": "preference", "confidence": 0.91},
             {"content": "User prefers dark mode", "category": "preference", "confidence": 0.92},
-            {"content": "User works on DeerFlow", "category": "context", "confidence": 0.87},
+            {"content": "User works on Crab", "category": "context", "confidence": 0.87},
         ],
     }
 
     with patch(
-        "deerflow.agents.memory.updater.get_memory_config",
+        "crab.agents.memory.updater.get_memory_config",
         return_value=_memory_config(max_facts=100, fact_confidence_threshold=0.7),
     ):
         result = updater._apply_updates(current_memory, update_data, thread_id="thread-42")
 
     assert [fact["content"] for fact in result["facts"]] == [
         "User prefers dark mode",
-        "User works on DeerFlow",
+        "User works on Crab",
     ]
     assert all(fact["id"].startswith("fact_") for fact in result["facts"])
     assert all(fact["source"] == "thread-42" for fact in result["facts"])
@@ -125,7 +125,7 @@ def test_apply_updates_preserves_threshold_and_max_facts_trimming() -> None:
     }
 
     with patch(
-        "deerflow.agents.memory.updater.get_memory_config",
+        "crab.agents.memory.updater.get_memory_config",
         return_value=_memory_config(max_facts=2, fact_confidence_threshold=0.7),
     ):
         result = updater._apply_updates(current_memory, update_data, thread_id="thread-9")
@@ -250,7 +250,7 @@ class TestUpdateMemoryStructuredResponse:
 
         with (
             patch.object(updater, "_get_model", return_value=self._make_mock_model(valid_json)),
-            patch("deerflow.agents.memory.updater.get_memory_config", return_value=_memory_config(enabled=True)),
+            patch("crab.agents.memory.updater.get_memory_config", return_value=_memory_config(enabled=True)),
             patch.object(MemoryUpdater, "_resolve_storage", return_value=mock_storage),
         ):
             msg = MagicMock()
@@ -273,7 +273,7 @@ class TestUpdateMemoryStructuredResponse:
 
         with (
             patch.object(updater, "_get_model", return_value=self._make_mock_model(list_content)),
-            patch("deerflow.agents.memory.updater.get_memory_config", return_value=_memory_config(enabled=True)),
+            patch("crab.agents.memory.updater.get_memory_config", return_value=_memory_config(enabled=True)),
             patch.object(MemoryUpdater, "_resolve_storage", return_value=mock_storage),
         ):
             msg = MagicMock()

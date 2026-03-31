@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ── Password hashing ────────────────────────────────────────────────────
 
 
@@ -338,8 +337,9 @@ class TestLangGraphCompatHelpers:
         assert merged == [{"id": "a1", "type": "ai", "content": "complete"}]
 
     def test_serialize_stream_message_flattens_chunk(self):
-        from app.gateway.routers.langgraph_compat import _serialize_stream_message
         from langchain_core.messages import AIMessageChunk
+
+        from app.gateway.routers.langgraph_compat import _serialize_stream_message
 
         payload = _serialize_stream_message(AIMessageChunk(content="he", id="chunk-1"))
 
@@ -348,8 +348,9 @@ class TestLangGraphCompatHelpers:
         assert payload["type"] == "AIMessageChunk"
 
     def test_serialize_langchain_message_preserves_reasoning_content(self):
-        from app.gateway.routers.langgraph_compat import _serialize_langchain_message
         from langchain_core.messages import AIMessage
+
+        from app.gateway.routers.langgraph_compat import _serialize_langchain_message
 
         payload = _serialize_langchain_message(
             AIMessage(
@@ -364,8 +365,9 @@ class TestLangGraphCompatHelpers:
         assert payload["additional_kwargs"]["reasoning_content"] == "step by step"
 
     def test_serialize_langchain_message_preserves_human_uploaded_files(self):
-        from app.gateway.routers.langgraph_compat import _serialize_langchain_message
         from langchain_core.messages import HumanMessage
+
+        from app.gateway.routers.langgraph_compat import _serialize_langchain_message
 
         payload = _serialize_langchain_message(
             HumanMessage(
@@ -458,8 +460,9 @@ class TestLangGraphCompatHelpers:
 
     @pytest.mark.asyncio
     async def test_get_thread_history_prefers_checkpointer(self):
-        from app.gateway.routers.langgraph_compat import get_thread_history
         from crab_platform.auth.interface import AuthenticatedUser
+
+        from app.gateway.routers.langgraph_compat import get_thread_history
 
         thread_id = uuid.uuid4()
         user = AuthenticatedUser(
@@ -503,8 +506,9 @@ class TestLangGraphCompatHelpers:
 
     @pytest.mark.asyncio
     async def test_create_thread_honors_requested_thread_id(self):
-        from app.gateway.routers.langgraph_compat import ThreadCreateRequest, create_thread
         from crab_platform.auth.interface import AuthenticatedUser
+
+        from app.gateway.routers.langgraph_compat import ThreadCreateRequest, create_thread
 
         requested_thread_id = uuid.uuid4()
         tenant_id = uuid.uuid4()
@@ -545,8 +549,9 @@ class TestLangGraphCompatHelpers:
 
     @pytest.mark.asyncio
     async def test_create_thread_reuses_existing_requested_thread_id(self):
-        from app.gateway.routers.langgraph_compat import ThreadCreateRequest, create_thread
         from crab_platform.auth.interface import AuthenticatedUser
+
+        from app.gateway.routers.langgraph_compat import ThreadCreateRequest, create_thread
 
         requested_thread_id = uuid.uuid4()
         tenant_id = uuid.uuid4()

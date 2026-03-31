@@ -1,11 +1,11 @@
 import logging
 
+from crab_platform.auth.interface import AuthenticatedUser
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.gateway.deps import get_current_user
-from crab_platform.auth.interface import AuthenticatedUser
-from deerflow.config.paths import Paths, get_paths
+from crab.config.paths import Paths, get_paths
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/threads", tags=["threads"])

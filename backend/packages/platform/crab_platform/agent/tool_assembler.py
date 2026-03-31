@@ -36,7 +36,7 @@ async def assemble_user_tools(
     This wraps the harness-level get_available_tools() and extends it with
     per-user MCP tools from PG.
     """
-    from deerflow.tools import get_available_tools
+    from crab.tools import get_available_tools
 
     # 1-2 + 4-6: Platform tools + shared MCP + built-ins + subagent + ACP
     # get_available_tools() handles all of these via the global config

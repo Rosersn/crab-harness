@@ -128,13 +128,13 @@ stop:
 	@sleep 1
 	@-pkill -9 nginx 2>/dev/null || true
 	@echo "Cleaning up sandbox containers..."
-	@-./scripts/cleanup-containers.sh deer-flow-sandbox 2>/dev/null || true
+	@-./scripts/cleanup-containers.sh crab-sandbox 2>/dev/null || true
 	@echo "✓ All services stopped"
 
 # Clean up
 clean: stop
 	@echo "Cleaning up..."
-	@-rm -rf backend/.deer-flow 2>/dev/null || true
+	@-rm -rf backend/.crab-harness 2>/dev/null || true
 	@-rm -rf backend/.langgraph_api 2>/dev/null || true
 	@-rm -rf logs/*.log 2>/dev/null || true
 	@echo "✓ Cleanup complete"

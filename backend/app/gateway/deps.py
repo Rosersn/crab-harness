@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.gateway.auth_cookies import ACCESS_TOKEN_COOKIE
 from crab_platform.auth.interface import AuthenticatedUser
 from crab_platform.auth.jwt import JWTAuthProvider
 from crab_platform.context import RequestContext
 from crab_platform.db import get_db
 from crab_platform.db.repos.thread_repo import ThreadRepo
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.gateway.auth_cookies import ACCESS_TOKEN_COOKIE
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 

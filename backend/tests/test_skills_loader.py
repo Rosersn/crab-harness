@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from deerflow.skills.loader import get_skills_root_path, load_skills
+from crab.skills.loader import get_skills_root_path, load_skills
 
 
 def _write_skill(skill_dir: Path, name: str, description: str) -> None:
@@ -13,7 +13,7 @@ def _write_skill(skill_dir: Path, name: str, description: str) -> None:
 
 
 def test_get_skills_root_path_points_to_project_root_skills():
-    """get_skills_root_path() should point to deer-flow/skills (sibling of backend/), not backend/packages/skills."""
+    """get_skills_root_path() should point to crab-harness/skills (sibling of backend/), not backend/packages/skills."""
     path = get_skills_root_path()
     assert path.name == "skills", f"Expected 'skills', got '{path.name}'"
     assert (path.parent / "backend").is_dir(), f"Expected skills path's parent to be project root containing 'backend/', but got {path}"

@@ -11,8 +11,7 @@ import logging
 import uuid
 from typing import Any
 
-from deerflow.agents.memory.storage import MemoryStorage, create_empty_memory
-
+from crab.agents.memory.storage import MemoryStorage, create_empty_memory
 from crab_platform.db.repos.memory_repo import MemoryRepo
 
 logger = logging.getLogger(__name__)

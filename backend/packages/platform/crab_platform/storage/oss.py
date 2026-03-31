@@ -46,7 +46,6 @@ class OSSObjectStorage:
         return loop.run_in_executor(None, functools.partial(fn, *args))
 
     async def put(self, key: str, data: bytes | BinaryIO, content_type: str = "application/octet-stream") -> str:
-        import oss2
 
         if isinstance(data, bytes):
             data = BytesIO(data)

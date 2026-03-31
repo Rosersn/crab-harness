@@ -1,4 +1,4 @@
-"""Tests for deerflow.skills.installer — shared skill installation logic."""
+"""Tests for crab.skills.installer — shared skill installation logic."""
 
 import stat
 import zipfile
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from deerflow.skills.installer import (
+from crab.skills.installer import (
     install_skill_from_archive,
     is_symlink_member,
     is_unsafe_zip_member,

@@ -4,11 +4,12 @@ Custom filesystem-backed agents are intentionally disabled in cloud mode.
 They were designed for single-user local usage and are not tenant-scoped.
 """
 
+from crab_platform.auth.interface import AuthenticatedUser
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.gateway.deps import get_current_user
-from crab_platform.auth.interface import AuthenticatedUser
+
 router = APIRouter(prefix="/api", tags=["agents"])
 _CLOUD_DISABLED_DETAIL = (
     "Custom agents and the global USER.md profile are not supported in cloud mode."

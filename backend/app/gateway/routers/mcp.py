@@ -8,15 +8,15 @@ managed via CRUD endpoints here.
 import logging
 from typing import Literal
 
+from crab_platform.auth.interface import AuthenticatedUser
+from crab_platform.db import get_db
+from crab_platform.db.repos.mcp_config_repo import McpConfigRepo
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.gateway.deps import get_current_user
-from crab_platform.auth.interface import AuthenticatedUser
-from crab_platform.db import get_db
-from crab_platform.db.repos.mcp_config_repo import McpConfigRepo
-from deerflow.config.extensions_config import get_extensions_config
+from crab.config.extensions_config import get_extensions_config
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])

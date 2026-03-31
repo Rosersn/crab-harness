@@ -29,7 +29,7 @@ export default function ChatPage() {
     useThreadChatRuntime();
   useSpecificChatMode();
   const displayThread =
-    isNewThread && !thread.isLoading
+    isNewThread && !thread.isLoading && thread.messages.length === 0
       ? ({
           ...thread,
           error: undefined,

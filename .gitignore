@@ -1,4 +1,4 @@
-# DeerFlow docker image cache
+# Crab docker image cache
 docker/.cache/
 # oh-my-claudecode state
 .omc/
@@ -35,7 +35,7 @@ extensions_config.json
 # Coverage report
 coverage.xml
 coverage/
-.deer-flow/
+.crab-harness/
 .claude/
 skills/custom/*
 logs/
@@ -54,3 +54,4 @@ web/
 # Deployment artifacts
 backend/Dockerfile.langgraph
 config.yaml.bak
+backend/.crab-harness

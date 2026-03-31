@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from deerflow.agents.lead_agent import agent as lead_agent_module
-from deerflow.config.app_config import AppConfig
-from deerflow.config.model_config import ModelConfig
-from deerflow.config.sandbox_config import SandboxConfig
-from deerflow.config.summarization_config import SummarizationConfig
+from crab.agents.lead_agent import agent as lead_agent_module
+from crab.config.app_config import AppConfig
+from crab.config.model_config import ModelConfig
+from crab.config.sandbox_config import SandboxConfig
+from crab.config.summarization_config import SummarizationConfig
 
 
 def _make_app_config(models: list[ModelConfig]) -> AppConfig:
     return AppConfig(
         models=models,
-        sandbox=SandboxConfig(use="deerflow.sandbox.local:LocalSandboxProvider"),
+        sandbox=SandboxConfig(use="crab.sandbox.local:LocalSandboxProvider"),
     )
 
 
@@ -77,7 +77,7 @@ def test_resolve_model_name_raises_when_no_models_configured(monkeypatch):
 def test_make_lead_agent_disables_thinking_when_model_does_not_support_it(monkeypatch):
     app_config = _make_app_config([_make_model("safe-model", supports_thinking=False)])
 
-    import deerflow.tools as tools_module
+    import crab.tools as tools_module
 
     monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
     monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from crab_platform.db.repos.skill_config_repo import SkillConfigRepo
 
 if TYPE_CHECKING:
-    from deerflow.skills.types import Skill
+    from crab.skills.types import Skill
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,8 @@ async def load_user_skills(
 
     Returns the filtered skill list.
     """
-    from deerflow.skills import load_skills
-    from deerflow.skills.types import Skill as SkillType
+    from crab.skills import load_skills
+    from crab.skills.types import Skill as SkillType
 
     # 1. Load platform skills (all, regardless of enabled state)
     #    Deep-copy to avoid mutating shared objects if load_skills() ever caches.

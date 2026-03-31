@@ -1,6 +1,6 @@
 # Documentation
 
-This directory contains detailed documentation for the DeerFlow backend.
+This directory contains detailed documentation for the Crab backend.
 
 ## Quick Links
 
@@ -20,16 +20,19 @@ This directory contains detailed documentation for the DeerFlow backend.
 | [summarization.md](summarization.md) | Context summarization feature |
 | [plan_mode_usage.md](plan_mode_usage.md) | Plan mode with TodoList |
 | [AUTO_TITLE_GENERATION.md](AUTO_TITLE_GENERATION.md) | Automatic title generation |
+| [GUARDRAILS.md](GUARDRAILS.md) | Tool call authorization |
 
-## Development
+## Design Documents
 
 | Document | Description |
 |----------|-------------|
-| [TODO.md](TODO.md) | Planned features and known issues |
+| [HARNESS_APP_SPLIT.md](HARNESS_APP_SPLIT.md) | Three-layer architecture design |
+| [APPLE_CONTAINER.md](APPLE_CONTAINER.md) | Apple Container runtime support |
+| [rfc-extract-shared-modules.md](rfc-extract-shared-modules.md) | RFC: Extract shared modules |
 
 ## Getting Started
 
-1. **New to DeerFlow?** Start with [SETUP.md](SETUP.md) for quick installation
+1. **New to Crab?** Start with [SETUP.md](SETUP.md) for quick installation
 2. **Configuring the system?** See [CONFIGURATION.md](CONFIGURATION.md)
 3. **Understanding the architecture?** Read [ARCHITECTURE.md](ARCHITECTURE.md)
 4. **Building integrations?** Check [API.md](API.md) for API reference
@@ -48,6 +51,8 @@ docs/
 ├── summarization.md           # Summarization feature
 ├── plan_mode_usage.md         # Plan mode feature
 ├── AUTO_TITLE_GENERATION.md   # Title generation
-├── TITLE_GENERATION_IMPLEMENTATION.md  # Title implementation details
-└── TODO.md                    # Roadmap and issues
+├── GUARDRAILS.md              # Tool call authorization
+├── HARNESS_APP_SPLIT.md       # Architecture design
+├── APPLE_CONTAINER.md         # Apple Container support
+└── rfc-extract-shared-modules.md  # RFC
 ```

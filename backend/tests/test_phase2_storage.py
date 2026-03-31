@@ -142,8 +142,9 @@ class TestPGMemoryStorage:
         assert data == agent_memory
 
     def test_implements_memory_storage_abc(self):
-        from deerflow.agents.memory.storage import MemoryStorage
         from crab_platform.storage.pg_memory import PGMemoryStorage
+
+        from crab.agents.memory.storage import MemoryStorage
 
         assert issubclass(PGMemoryStorage, MemoryStorage)
 
@@ -309,8 +310,8 @@ class TestStorageFactory:
     """Tests for get_object_storage() factory."""
 
     def test_local_backend(self, tmp_path):
-        from crab_platform.storage import get_object_storage
         import crab_platform.storage as storage_mod
+        from crab_platform.storage import get_object_storage
 
         # Reset singleton
         storage_mod._instance = None
@@ -332,8 +333,8 @@ class TestStorageFactory:
 
     def test_unknown_backend_defaults_to_local(self):
         """Unknown backend falls through to LocalObjectStorage (safe default)."""
-        from crab_platform.storage import get_object_storage
         import crab_platform.storage as storage_mod
+        from crab_platform.storage import get_object_storage
 
         storage_mod._instance = None
 
@@ -353,8 +354,8 @@ class TestStorageFactory:
 
     def test_oss_backend(self):
         """OSS backend returns OSSObjectStorage instance."""
-        from crab_platform.storage import get_object_storage
         import crab_platform.storage as storage_mod
+        from crab_platform.storage import get_object_storage
 
         storage_mod._instance = None
 

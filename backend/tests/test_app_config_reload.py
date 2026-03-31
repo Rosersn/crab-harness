@@ -6,14 +6,14 @@ from pathlib import Path
 
 import yaml
 
-from deerflow.config.app_config import get_app_config, reset_app_config
+from crab.config.app_config import get_app_config, reset_app_config
 
 
 def _write_config(path: Path, *, model_name: str, supports_thinking: bool) -> None:
     path.write_text(
         yaml.safe_dump(
             {
-                "sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider"},
+                "sandbox": {"use": "crab.sandbox.local:LocalSandboxProvider"},
                 "models": [
                     {
                         "name": model_name,
@@ -38,8 +38,8 @@ def test_get_app_config_reloads_when_file_changes(tmp_path, monkeypatch):
     _write_extensions_config(extensions_path)
     _write_config(config_path, model_name="first-model", supports_thinking=False)
 
-    monkeypatch.setenv("DEER_FLOW_CONFIG_PATH", str(config_path))
-    monkeypatch.setenv("DEER_FLOW_EXTENSIONS_CONFIG_PATH", str(extensions_path))
+    monkeypatch.setenv("CRAB_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("CRAB_EXTENSIONS_CONFIG_PATH", str(extensions_path))
     reset_app_config()
 
     try:
@@ -65,15 +65,15 @@ def test_get_app_config_reloads_when_config_path_changes(tmp_path, monkeypatch):
     _write_config(config_a, model_name="model-a", supports_thinking=False)
     _write_config(config_b, model_name="model-b", supports_thinking=True)
 
-    monkeypatch.setenv("DEER_FLOW_EXTENSIONS_CONFIG_PATH", str(extensions_path))
-    monkeypatch.setenv("DEER_FLOW_CONFIG_PATH", str(config_a))
+    monkeypatch.setenv("CRAB_EXTENSIONS_CONFIG_PATH", str(extensions_path))
+    monkeypatch.setenv("CRAB_CONFIG_PATH", str(config_a))
     reset_app_config()
 
     try:
         first = get_app_config()
         assert first.models[0].name == "model-a"
 
-        monkeypatch.setenv("DEER_FLOW_CONFIG_PATH", str(config_b))
+        monkeypatch.setenv("CRAB_CONFIG_PATH", str(config_b))
         second = get_app_config()
         assert second.models[0].name == "model-b"
         assert second is not first

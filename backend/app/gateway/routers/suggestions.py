@@ -1,12 +1,12 @@
 import json
 import logging
 
+from crab_platform.auth.interface import AuthenticatedUser
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.gateway.deps import get_current_user
-from crab_platform.auth.interface import AuthenticatedUser
-from deerflow.models import create_chat_model
+from crab.models import create_chat_model
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,7 @@
 import json
 import os
 
-from deerflow.models.credential_loader import (
+from crab.models.credential_loader import (
     load_claude_code_credential,
     load_codex_cli_credential,
 )

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from deerflow.models.claude_provider import OAUTH_BILLING_HEADER, ClaudeChatModel
+from crab.models.claude_provider import OAUTH_BILLING_HEADER, ClaudeChatModel
 
 
 def _make_model() -> ClaudeChatModel:
@@ -95,7 +95,7 @@ def test_metadata_user_id_added_when_missing(model):
     user_id = json.loads(payload["metadata"]["user_id"])
     assert "device_id" in user_id
     assert "session_id" in user_id
-    assert user_id["account_uuid"] == "deerflow"
+    assert user_id["account_uuid"] == "crab"
 
 
 def test_metadata_user_id_not_overwritten_if_present(model):

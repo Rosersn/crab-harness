@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from deerflow.agents.middlewares.loop_detection_middleware import (
+from crab.agents.middlewares.loop_detection_middleware import (
     _HARD_STOP_MSG,
     LoopDetectionMiddleware,
     _hash_tool_calls,

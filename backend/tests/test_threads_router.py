@@ -2,13 +2,13 @@ import uuid
 from unittest.mock import patch
 
 import pytest
+from crab_platform.auth.interface import AuthenticatedUser
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from app.gateway.deps import get_current_user
 from app.gateway.routers import threads
-from crab_platform.auth.interface import AuthenticatedUser
-from deerflow.config.paths import Paths
+from crab.config.paths import Paths
 
 _FAKE_USER = AuthenticatedUser(
     user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), email="test@example.com", role="member",

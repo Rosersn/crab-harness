@@ -1,8 +1,8 @@
-"""Tests for deerflow.config.tracing_config."""
+"""Tests for crab.config.tracing_config."""
 
 from __future__ import annotations
 
-from deerflow.config import tracing_config as tracing_module
+from crab.config import tracing_config as tracing_module
 
 
 def _reset_tracing_cache() -> None:
@@ -68,4 +68,4 @@ def test_defaults_when_project_not_set(monkeypatch):
     _reset_tracing_cache()
     cfg = tracing_module.get_tracing_config()
 
-    assert cfg.project == "deer-flow"
+    assert cfg.project == "crab"

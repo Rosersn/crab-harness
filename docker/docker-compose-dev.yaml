@@ -25,18 +25,18 @@ services:
       dockerfile: Dockerfile
       args:
         APT_MIRROR: ${APT_MIRROR:-}
-    container_name: deer-flow-provisioner
+    container_name: crab-provisioner
     volumes:
       - ~/.kube/config:/root/.kube/config:ro
     environment:
-      - K8S_NAMESPACE=deer-flow
+      - K8S_NAMESPACE=crab
       - SANDBOX_IMAGE=enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
       # Host paths for K8s HostPath volumes (must be absolute paths accessible by K8s node)
       # On Docker Desktop/OrbStack, use your actual host paths like /Users/username/...
       # Set these in your shell before running docker-compose:
-      #   export DEER_FLOW_ROOT=/absolute/path/to/deer-flow
-      - SKILLS_HOST_PATH=${DEER_FLOW_ROOT}/skills
-      - THREADS_HOST_PATH=${DEER_FLOW_ROOT}/backend/.deer-flow/threads
+      #   export CRAB_ROOT=/absolute/path/to/crab
+      - SKILLS_HOST_PATH=${CRAB_ROOT}/skills
+      - THREADS_HOST_PATH=${CRAB_ROOT}/backend/.crab-harness/threads
       - KUBECONFIG_PATH=/root/.kube/config
       - NODE_HOST=host.docker.internal
       # Override K8S API server URL since kubeconfig uses 127.0.0.1
@@ -47,7 +47,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - deer-flow-dev
+      - crab-dev
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
@@ -63,7 +63,7 @@ services:
   # - nginx.conf: includes provisioner route (provisioner mode)
   nginx:
     image: nginx:alpine
-    container_name: deer-flow-nginx
+    container_name: crab-nginx
     ports:
       - "2026:2026"
     volumes:
@@ -72,7 +72,7 @@ services:
       - frontend
       - gateway
     networks:
-      - deer-flow-dev
+      - crab-dev
     restart: unless-stopped
 
   # Frontend - Next.js Development Server
@@ -84,7 +84,7 @@ services:
       args:
         PNPM_STORE_PATH: ${PNPM_STORE_PATH:-/root/.local/share/pnpm/store}
         NPM_REGISTRY: ${NPM_REGISTRY:-}
-    container_name: deer-flow-frontend
+    container_name: crab-frontend
     command: sh -c "cd frontend && pnpm run dev > /app/logs/frontend.log 2>&1"
     volumes:
       - ../frontend/src:/app/frontend/src
@@ -101,7 +101,7 @@ services:
     env_file:
       - ../frontend/.env
     networks:
-      - deer-flow-dev
+      - crab-dev
     restart: unless-stopped
 
   # Backend - Gateway API
@@ -113,7 +113,7 @@ services:
       args:
         APT_MIRROR: ${APT_MIRROR:-}
         UV_IMAGE: ${UV_IMAGE:-ghcr.io/astral-sh/uv:0.7.20}
-    container_name: deer-flow-gateway
+    container_name: crab-gateway
     command: sh -c "cd backend && PYTHONPATH=. uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001 --reload --reload-include='*.yaml .env' > /app/logs/gateway.log 2>&1"
     volumes:
       - ../backend/:/app/backend/
@@ -144,16 +144,16 @@ services:
     working_dir: /app
     environment:
       - CI=true
-      - DEER_FLOW_HOST_BASE_DIR=${DEER_FLOW_ROOT}/backend/.deer-flow
-      - DEER_FLOW_HOST_SKILLS_PATH=${DEER_FLOW_ROOT}/skills
-      - DEER_FLOW_SANDBOX_HOST=host.docker.internal
+      - CRAB_HOST_BASE_DIR=${CRAB_ROOT}/backend/.crab-harness
+      - CRAB_HOST_SKILLS_PATH=${CRAB_ROOT}/skills
+      - CRAB_SANDBOX_HOST=host.docker.internal
     env_file:
       - ../.env
     extra_hosts:
       # For Linux: map host.docker.internal to host gateway
       - "host.docker.internal:host-gateway"
     networks:
-      - deer-flow-dev
+      - crab-dev
     restart: unless-stopped
 
 volumes:
@@ -162,7 +162,7 @@ volumes:
   gateway-venv:
 
 networks:
-  deer-flow-dev:
+  crab-dev:
     driver: bridge
     ipam:
       config:

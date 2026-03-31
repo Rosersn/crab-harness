@@ -13,8 +13,8 @@ resolution-markers = [
 [manifest]
 members = [
     "crab-harness",
+    "crab-harness-backend",
     "crab-platform",
-    "deerflow-harness",
 ]
 
 [[package]]
@@ -730,10 +730,81 @@ wheels = [
 [[package]]
 name = "crab-harness"
 version = "0.1.0"
+source = { editable = "packages/harness" }
+dependencies = [
+    { name = "agent-client-protocol" },
+    { name = "agent-sandbox" },
+    { name = "ddgs" },
+    { name = "dotenv" },
+    { name = "duckdb" },
+    { name = "firecrawl-py" },
+    { name = "httpx" },
+    { name = "kubernetes" },
+    { name = "langchain" },
+    { name = "langchain-anthropic" },
+    { name = "langchain-deepseek" },
+    { name = "langchain-google-genai" },
+    { name = "langchain-mcp-adapters" },
+    { name = "langchain-openai" },
+    { name = "langgraph" },
+    { name = "langgraph-api" },
+    { name = "langgraph-checkpoint-postgres" },
+    { name = "langgraph-checkpoint-sqlite" },
+    { name = "langgraph-cli" },
+    { name = "langgraph-runtime-inmem" },
+    { name = "langgraph-sdk" },
+    { name = "markdownify" },
+    { name = "markitdown", extra = ["all", "xlsx"] },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "psycopg-pool" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "readabilipy" },
+    { name = "tavily-python" },
+    { name = "tiktoken" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agent-client-protocol", specifier = ">=0.4.0" },
+    { name = "agent-sandbox", specifier = ">=0.0.19" },
+    { name = "ddgs", specifier = ">=9.10.0" },
+    { name = "dotenv", specifier = ">=0.9.9" },
+    { name = "duckdb", specifier = ">=1.4.4" },
+    { name = "firecrawl-py", specifier = ">=1.15.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
+    { name = "kubernetes", specifier = ">=30.0.0" },
+    { name = "langchain", specifier = ">=1.2.3" },
+    { name = "langchain-anthropic", specifier = ">=1.3.4" },
+    { name = "langchain-deepseek", specifier = ">=1.0.1" },
+    { name = "langchain-google-genai", specifier = ">=4.2.1" },
+    { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
+    { name = "langchain-openai", specifier = ">=1.1.7" },
+    { name = "langgraph", specifier = ">=1.0.6,<1.0.10" },
+    { name = "langgraph-api", specifier = ">=0.7.0,<0.8.0" },
+    { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.3" },
+    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.3" },
+    { name = "langgraph-cli", specifier = ">=0.4.14" },
+    { name = "langgraph-runtime-inmem", specifier = ">=0.22.1" },
+    { name = "langgraph-sdk", specifier = ">=0.1.51" },
+    { name = "markdownify", specifier = ">=1.2.2" },
+    { name = "markitdown", extras = ["all", "xlsx"], specifier = ">=0.0.1a2" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "psycopg-pool", specifier = ">=3.2" },
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "readabilipy", specifier = ">=0.3.0" },
+    { name = "tavily-python", specifier = ">=0.7.17" },
+    { name = "tiktoken", specifier = ">=0.8.0" },
+]
+
+[[package]]
+name = "crab-harness-backend"
+version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "crab-harness" },
     { name = "crab-platform" },
-    { name = "deerflow-harness" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pydantic", extra = ["email"] },
@@ -752,8 +823,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "crab-harness", editable = "packages/harness" },
     { name = "crab-platform", editable = "packages/platform" },
-    { name = "deerflow-harness", editable = "packages/harness" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "pydantic", extras = ["email"], specifier = ">=2.0" },
@@ -778,7 +849,7 @@ dependencies = [
     { name = "asyncpg" },
     { name = "bce-python-sdk" },
     { name = "bcrypt" },
-    { name = "deerflow-harness" },
+    { name = "crab-harness" },
     { name = "e2b" },
     { name = "oss2" },
     { name = "pydantic-settings" },
@@ -792,7 +863,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30" },
     { name = "bce-python-sdk", specifier = ">=0.9" },
     { name = "bcrypt", specifier = ">=4.0" },
-    { name = "deerflow-harness", editable = "packages/harness" },
+    { name = "crab-harness", editable = "packages/harness" },
     { name = "e2b", specifier = ">=2.10" },
     { name = "oss2", specifier = ">=2.18" },
     { name = "pydantic-settings", specifier = ">=2.7" },
@@ -940,77 +1011,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/07/76/8dc0323d1577037abad7a679f8af150ebb73a94995d3012de71a8898e6e6/ddgs-9.10.0.tar.gz", hash = "sha256:d9381ff75bdf1ad6691d3d1dc2be12be190d1d32ecd24f1002c492143c52c34f", size = 31491, upload-time = "2025-12-17T23:30:15.021Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b5/0e/d4b7d6a8df5074cf67bc14adead39955b0bf847c947ff6cad0bb527887f4/ddgs-9.10.0-py3-none-any.whl", hash = "sha256:81233d79309836eb03e7df2a0d2697adc83c47c342713132c0ba618f1f2c6eee", size = 40311, upload-time = "2025-12-17T23:30:13.606Z" },
-]
-
-[[package]]
-name = "deerflow-harness"
-version = "0.1.0"
-source = { editable = "packages/harness" }
-dependencies = [
-    { name = "agent-client-protocol" },
-    { name = "agent-sandbox" },
-    { name = "ddgs" },
-    { name = "dotenv" },
-    { name = "duckdb" },
-    { name = "firecrawl-py" },
-    { name = "httpx" },
-    { name = "kubernetes" },
-    { name = "langchain" },
-    { name = "langchain-anthropic" },
-    { name = "langchain-deepseek" },
-    { name = "langchain-google-genai" },
-    { name = "langchain-mcp-adapters" },
-    { name = "langchain-openai" },
-    { name = "langgraph" },
-    { name = "langgraph-api" },
-    { name = "langgraph-checkpoint-postgres" },
-    { name = "langgraph-checkpoint-sqlite" },
-    { name = "langgraph-cli" },
-    { name = "langgraph-runtime-inmem" },
-    { name = "langgraph-sdk" },
-    { name = "markdownify" },
-    { name = "markitdown", extra = ["all", "xlsx"] },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "psycopg-pool" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-    { name = "readabilipy" },
-    { name = "tavily-python" },
-    { name = "tiktoken" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "agent-client-protocol", specifier = ">=0.4.0" },
-    { name = "agent-sandbox", specifier = ">=0.0.19" },
-    { name = "ddgs", specifier = ">=9.10.0" },
-    { name = "dotenv", specifier = ">=0.9.9" },
-    { name = "duckdb", specifier = ">=1.4.4" },
-    { name = "firecrawl-py", specifier = ">=1.15.0" },
-    { name = "httpx", specifier = ">=0.28.0" },
-    { name = "kubernetes", specifier = ">=30.0.0" },
-    { name = "langchain", specifier = ">=1.2.3" },
-    { name = "langchain-anthropic", specifier = ">=1.3.4" },
-    { name = "langchain-deepseek", specifier = ">=1.0.1" },
-    { name = "langchain-google-genai", specifier = ">=4.2.1" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.1.0" },
-    { name = "langchain-openai", specifier = ">=1.1.7" },
-    { name = "langgraph", specifier = ">=1.0.6,<1.0.10" },
-    { name = "langgraph-api", specifier = ">=0.7.0,<0.8.0" },
-    { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.3" },
-    { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.3" },
-    { name = "langgraph-cli", specifier = ">=0.4.14" },
-    { name = "langgraph-runtime-inmem", specifier = ">=0.22.1" },
-    { name = "langgraph-sdk", specifier = ">=0.1.51" },
-    { name = "markdownify", specifier = ">=1.2.2" },
-    { name = "markitdown", extras = ["all", "xlsx"], specifier = ">=0.0.1a2" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
-    { name = "psycopg-pool", specifier = ">=3.2" },
-    { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "readabilipy", specifier = ">=0.3.0" },
-    { name = "tavily-python", specifier = ">=0.7.17" },
-    { name = "tiktoken", specifier = ">=0.8.0" },
 ]
 
 [[package]]

@@ -8,10 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from deerflow.subagents.config import SubagentConfig
+from crab.subagents.config import SubagentConfig
 
 # Use module import so tests can patch the exact symbols referenced inside task_tool().
-task_tool_module = importlib.import_module("deerflow.tools.builtins.task_tool")
+task_tool_module = importlib.import_module("crab.tools.builtins.task_tool")
 
 
 class FakeSubagentStatus(Enum):
@@ -126,8 +126,8 @@ def test_task_tool_emits_running_and_completed_events(monkeypatch):
     monkeypatch.setattr(task_tool_module, "get_background_task_result", lambda _: next(responses))
     monkeypatch.setattr(task_tool_module, "get_stream_writer", lambda: events.append)
     monkeypatch.setattr(task_tool_module.asyncio, "sleep", _no_sleep)
-    # task_tool lazily imports from deerflow.tools at call time, so patch that module-level function.
-    monkeypatch.setattr("deerflow.tools.get_available_tools", get_available_tools)
+    # task_tool lazily imports from crab.tools at call time, so patch that module-level function.
+    monkeypatch.setattr("crab.tools.get_available_tools", get_available_tools)
 
     output = _run_task_tool(
         runtime=runtime,
@@ -172,7 +172,7 @@ def test_task_tool_returns_failed_message(monkeypatch):
     )
     monkeypatch.setattr(task_tool_module, "get_stream_writer", lambda: events.append)
     monkeypatch.setattr(task_tool_module.asyncio, "sleep", _no_sleep)
-    monkeypatch.setattr("deerflow.tools.get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr("crab.tools.get_available_tools", lambda **kwargs: [])
 
     output = _run_task_tool(
         runtime=_make_runtime(),
@@ -206,7 +206,7 @@ def test_task_tool_returns_timed_out_message(monkeypatch):
     )
     monkeypatch.setattr(task_tool_module, "get_stream_writer", lambda: events.append)
     monkeypatch.setattr(task_tool_module.asyncio, "sleep", _no_sleep)
-    monkeypatch.setattr("deerflow.tools.get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr("crab.tools.get_available_tools", lambda **kwargs: [])
 
     output = _run_task_tool(
         runtime=_make_runtime(),
@@ -242,7 +242,7 @@ def test_task_tool_polling_safety_timeout(monkeypatch):
     )
     monkeypatch.setattr(task_tool_module, "get_stream_writer", lambda: events.append)
     monkeypatch.setattr(task_tool_module.asyncio, "sleep", _no_sleep)
-    monkeypatch.setattr("deerflow.tools.get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr("crab.tools.get_available_tools", lambda **kwargs: [])
 
     output = _run_task_tool(
         runtime=_make_runtime(),
@@ -278,7 +278,7 @@ def test_cleanup_called_on_completed(monkeypatch):
     )
     monkeypatch.setattr(task_tool_module, "get_stream_writer", lambda: events.append)
     monkeypatch.setattr(task_tool_module.asyncio, "sleep", _no_sleep)
-    monkeypatch.setattr("deerflow.tools.get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr("crab.tools.get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
         task_tool_module,
         "cleanup_background_task",
@@ -318,7 +318,7 @@ def test_cleanup_called_on_failed(monkeypatch):
     )
     monkeypatch.setattr(task_tool_module, "get_stream_writer", lambda: events.append)
     monkeypatch.setattr(task_tool_module.asyncio, "sleep", _no_sleep)
-    monkeypatch.setattr("deerflow.tools.get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr("crab.tools.get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
         task_tool_module,
         "cleanup_background_task",
@@ -358,7 +358,7 @@ def test_cleanup_called_on_timed_out(monkeypatch):
     )
     monkeypatch.setattr(task_tool_module, "get_stream_writer", lambda: events.append)
     monkeypatch.setattr(task_tool_module.asyncio, "sleep", _no_sleep)
-    monkeypatch.setattr("deerflow.tools.get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr("crab.tools.get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
         task_tool_module,
         "cleanup_background_task",
@@ -405,7 +405,7 @@ def test_cleanup_not_called_on_polling_safety_timeout(monkeypatch):
     )
     monkeypatch.setattr(task_tool_module, "get_stream_writer", lambda: events.append)
     monkeypatch.setattr(task_tool_module.asyncio, "sleep", _no_sleep)
-    monkeypatch.setattr("deerflow.tools.get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr("crab.tools.get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
         task_tool_module,
         "cleanup_background_task",
@@ -459,7 +459,7 @@ def test_cleanup_scheduled_on_cancellation(monkeypatch):
         "create_task",
         lambda coro: scheduled_cleanup_coros.append(coro) or _DummyScheduledTask(),
     )
-    monkeypatch.setattr("deerflow.tools.get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr("crab.tools.get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
         task_tool_module,
         "cleanup_background_task",
@@ -514,7 +514,7 @@ def test_cancelled_cleanup_stops_after_timeout(monkeypatch):
         "create_task",
         lambda coro: scheduled_cleanup_coros.append(coro) or _DummyScheduledTask(),
     )
-    monkeypatch.setattr("deerflow.tools.get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr("crab.tools.get_available_tools", lambda **kwargs: [])
     monkeypatch.setattr(
         task_tool_module,
         "cleanup_background_task",

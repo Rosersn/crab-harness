@@ -2,6 +2,10 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from crab_platform.config.platform_config import get_platform_config
+from crab_platform.db import create_tables
+from crab_platform.db.repos.thread_repo import RunRepo
+from crab_platform.storage.pg_memory import resolve_pg_memory_storage
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,12 +23,8 @@ from app.gateway.routers import (
     uploads,
 )
 from app.gateway.routers import auth as auth_router
-from crab_platform.config.platform_config import get_platform_config
-from crab_platform.db import create_tables
-from crab_platform.db.repos.thread_repo import RunRepo
-from crab_platform.storage.pg_memory import resolve_pg_memory_storage
-from deerflow.agents.memory.updater import set_memory_storage_resolver
-from deerflow.config.app_config import get_app_config
+from crab.agents.memory.updater import set_memory_storage_resolver
+from crab.config.app_config import get_app_config
 
 # Configure logging
 logging.basicConfig(
@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Shutdown: clean up sandbox provider and cleaner
     try:
-        from deerflow.sandbox.sandbox_provider import get_sandbox_provider
+        from crab.sandbox.sandbox_provider import get_sandbox_provider
 
         provider = get_sandbox_provider()
         if hasattr(provider, "shutdown"):

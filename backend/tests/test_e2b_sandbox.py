@@ -79,7 +79,7 @@ class TestE2BPathMappingConfig:
             skills=SimpleNamespace(container_path="/mnt/skills"),
         )
 
-        with patch("deerflow.config.get_app_config", return_value=mock_config):
+        with patch("crab.config.get_app_config", return_value=mock_config):
             mapping = build_e2b_path_mapping()
 
         assert mapping.actual_user_data_root == "/home/user/runtime-data"
@@ -96,13 +96,13 @@ class TestE2BPathMappingConfig:
             skills=SimpleNamespace(container_path="/mnt/skills"),
         )
 
-        with patch("deerflow.config.get_app_config", return_value=mock_config):
+        with patch("crab.config.get_app_config", return_value=mock_config):
             mapping = build_e2b_path_mapping()
 
-        assert mapping.actual_user_data_root == "/home/user/.deerflow/user-data"
-        assert mapping.actual_skills_root == "/home/user/.deerflow/skills"
-        assert mapping.actual_acp_workspace_root == "/home/user/.deerflow/acp-workspace"
-        assert mapping.working_directory == "/home/user/.deerflow/user-data/workspace"
+        assert mapping.actual_user_data_root == "/home/user/.crab-harness/user-data"
+        assert mapping.actual_skills_root == "/home/user/.crab-harness/skills"
+        assert mapping.actual_acp_workspace_root == "/home/user/.crab-harness/acp-workspace"
+        assert mapping.working_directory == "/home/user/.crab-harness/user-data/workspace"
 
 
 # ===========================================================================
@@ -126,7 +126,7 @@ class TestE2BSandbox:
         result = sbx.execute_command("echo hello")
         mock.set_timeout.assert_called_once_with(1800)
         mock.commands.run.assert_called_once_with(
-            "cd /home/user/.deerflow/user-data/workspace && echo hello",
+            "cd /home/user/.crab-harness/user-data/workspace && echo hello",
             timeout=300,
         )
         assert result == "hello\n"
@@ -763,9 +763,9 @@ class TestFileInjector:
             # Check the paths written
             calls = e2b_mock.files.write.call_args_list
             paths_written = [c[0][0] for c in calls]
-            assert "/home/user/.deerflow/user-data/uploads/data.csv" in paths_written
-            assert "/home/user/.deerflow/user-data/uploads/report.pdf" in paths_written
-            assert "/home/user/.deerflow/user-data/uploads/report.pdf.extracted.md" in paths_written
+            assert "/home/user/.crab-harness/user-data/uploads/data.csv" in paths_written
+            assert "/home/user/.crab-harness/user-data/uploads/report.pdf" in paths_written
+            assert "/home/user/.crab-harness/user-data/uploads/report.pdf.extracted.md" in paths_written
 
     @pytest.mark.asyncio
     async def test_inject_partial_failure(self, mock_session_factory):
@@ -866,9 +866,9 @@ class TestUserFileInjector:
             assert e2b_mock.files.write_files.call_count == 1
 
             paths_written = _written_paths_from_write_files(e2b_mock)
-            assert "/home/user/.deerflow/user-data/uploads/data.csv" in paths_written
-            assert "/home/user/.deerflow/user-data/uploads/report.pdf" in paths_written
-            assert "/home/user/.deerflow/user-data/uploads/report.pdf.extracted.md" in paths_written
+            assert "/home/user/.crab-harness/user-data/uploads/data.csv" in paths_written
+            assert "/home/user/.crab-harness/user-data/uploads/report.pdf" in paths_written
+            assert "/home/user/.crab-harness/user-data/uploads/report.pdf.extracted.md" in paths_written
 
     @pytest.mark.asyncio
     async def test_inject_platform_skills_writes_shared_skill_tree(self):
@@ -892,7 +892,7 @@ class TestUserFileInjector:
             assert count == 3
             assert e2b_mock.files.write_files.call_count == 1
             archive_entry = e2b_mock.files.write_files.call_args.args[0][0]
-            assert archive_entry["path"] == "/home/user/.deerflow/skills/.platform-skills.tar.gz"
+            assert archive_entry["path"] == "/home/user/.crab-harness/skills/.platform-skills.tar.gz"
 
             with tarfile.open(fileobj=io.BytesIO(archive_entry["data"]), mode="r:gz") as archive:
                 archived_paths = archive.getnames()
@@ -904,7 +904,7 @@ class TestUserFileInjector:
             e2b_mock.commands.run.assert_called_once()
             extract_cmd = e2b_mock.commands.run.call_args.args[0]
             assert "tar -xzf" in extract_cmd
-            assert "/home/user/.deerflow/skills/.platform-skills.tar.gz" in extract_cmd
+            assert "/home/user/.crab-harness/skills/.platform-skills.tar.gz" in extract_cmd
         finally:
             if skills_root.exists():
                 import shutil
@@ -1347,7 +1347,7 @@ class TestSandboxABCCompliance:
     def test_is_subclass_of_sandbox(self):
         from crab_platform.sandbox.e2b_sandbox import E2BSandbox
 
-        from deerflow.sandbox.sandbox import Sandbox
+        from crab.sandbox.sandbox import Sandbox
 
         assert issubclass(E2BSandbox, Sandbox)
 
@@ -1369,7 +1369,7 @@ class TestSandboxProviderABCCompliance:
     def test_is_subclass_of_sandbox_provider(self):
         from crab_platform.sandbox.e2b_sandbox_provider import E2BSandboxProvider
 
-        from deerflow.sandbox.sandbox_provider import SandboxProvider
+        from crab.sandbox.sandbox_provider import SandboxProvider
 
         assert issubclass(E2BSandboxProvider, SandboxProvider)
 

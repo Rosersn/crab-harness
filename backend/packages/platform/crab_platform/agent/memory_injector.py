@@ -27,7 +27,7 @@ async def load_user_memory(
     Returns the raw memory dict (same shape as FileMemoryStorage), or an empty
     memory structure if none exists.
     """
-    from deerflow.agents.memory.storage import create_empty_memory
+    from crab.agents.memory.storage import create_empty_memory
 
     repo = MemoryRepo(db)
     data = await repo.load(user_id, agent_name)
@@ -49,8 +49,8 @@ async def format_user_memory_context(
     ``_get_memory_context(agent_name)`` for multi-tenant mode.
     """
     try:
-        from deerflow.agents.memory import format_memory_for_injection
-        from deerflow.config.memory_config import get_memory_config
+        from crab.agents.memory import format_memory_for_injection
+        from crab.config.memory_config import get_memory_config
 
         config = get_memory_config()
         if not config.enabled or not config.injection_enabled:

@@ -19,17 +19,16 @@ from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.ext.asyncio import AsyncSession
 
+# Reuse harness internals
+from crab.agents.lead_agent.agent import _build_middlewares, _resolve_model_name
+from crab.agents.lead_agent.prompt import apply_prompt_template
+from crab.agents.thread_state import AgentRuntimeContext, ThreadState
+from crab.config.agents_config import load_agent_config
+from crab.config.app_config import get_app_config
+from crab.models import create_chat_model
 from crab_platform.agent.memory_injector import format_user_memory_context
 from crab_platform.agent.tool_assembler import assemble_user_tools
 from crab_platform.context import RequestContext
-
-# Reuse harness internals
-from deerflow.agents.lead_agent.agent import _build_middlewares, _resolve_model_name
-from deerflow.agents.lead_agent.prompt import apply_prompt_template
-from deerflow.agents.thread_state import AgentRuntimeContext, ThreadState
-from deerflow.config.agents_config import load_agent_config
-from deerflow.config.app_config import get_app_config
-from deerflow.models import create_chat_model
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +163,7 @@ async def _build_tenant_prompt(
     - memory_context: loaded from PG (instead of file-based)
     - available_skills: filtered by user's PG overrides
     - extra_skills: custom user skills from BOS (not on filesystem)
-    - default_agent_name: "Crab Harness" (instead of "DeerFlow 2.0")
+    - default_agent_name: "Crab" (instead of "Crab 2.0")
     """
     # Per-user memory from PG
     memory_context = await format_user_memory_context(
@@ -192,5 +191,5 @@ async def _build_tenant_prompt(
         available_skills=user_skill_names,
         extra_skills=extra_skills if extra_skills else None,
         memory_context=memory_context,
-        default_agent_name="Crab Harness",
+        default_agent_name="Crab",
     )

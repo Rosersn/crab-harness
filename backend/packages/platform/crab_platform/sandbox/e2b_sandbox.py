@@ -10,7 +10,7 @@ import logging
 import shlex
 from typing import TYPE_CHECKING
 
-from deerflow.sandbox.sandbox import Sandbox
+from crab.sandbox.sandbox import Sandbox
 from crab_platform.sandbox.path_mapping import E2BPathMapping
 
 if TYPE_CHECKING:

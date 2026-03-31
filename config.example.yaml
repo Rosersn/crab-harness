@@ -1,9 +1,9 @@
-# Configuration for the DeerFlow application
+# Configuration for the Crab application
 #
 # Guidelines:
 # - Copy this file to `config.yaml` and customize it for your environment
 # - The default path of this configuration file is `config.yaml` in the current working directory.
-#   However you can change it using the `DEER_FLOW_CONFIG_PATH` environment variable.
+#   However you can change it using the `CRAB_CONFIG_PATH` environment variable.
 # - Environment variables are available for all field values. Example: `api_key: $OPENAI_API_KEY`
 # - The `use` path is a string that looks like "package_name.sub_package_name.module_name:class_name/variable_name".
 
@@ -17,7 +17,7 @@ config_version: 3
 # ============================================================================
 # Logging
 # ============================================================================
-# Log level for deerflow modules (debug/info/warning/error)
+# Log level for crab modules (debug/info/warning/error)
 log_level: info
 
 # ============================================================================
@@ -49,7 +49,7 @@ models:
   # Example: Volcengine (Doubao) model
   # - name: doubao-seed-1.8
   #   display_name: Doubao-Seed-1.8
-  #   use: deerflow.models.patched_deepseek:PatchedChatDeepSeek
+  #   use: crab.models.patched_deepseek:PatchedChatDeepSeek
   #   model: doubao-seed-1-8-251228
   #   api_base: https://ark.cn-beijing.volces.com/api/v3
   #   api_key: $VOLCENGINE_API_KEY
@@ -109,7 +109,7 @@ models:
   # https://docs.cloud.google.com/vertex-ai/generative-ai/docs/thought-signatures
   # - name: gemini-2.5-pro-thinking
   #   display_name: Gemini 2.5 Pro (Thinking)
-  #   use: deerflow.models.patched_openai:PatchedChatOpenAI
+  #   use: crab.models.patched_openai:PatchedChatOpenAI
   #   model: google/gemini-2.5-pro-preview   # model name as expected by your gateway
   #   api_key: $GEMINI_API_KEY
   #   base_url: https://<your-openai-compat-gateway>/v1
@@ -124,7 +124,7 @@ models:
   # Example: DeepSeek model (with thinking support)
   # - name: deepseek-v3
   #   display_name: DeepSeek V3 (Thinking)
-  #   use: deerflow.models.patched_deepseek:PatchedChatDeepSeek
+  #   use: crab.models.patched_deepseek:PatchedChatDeepSeek
   #   model: deepseek-reasoner
   #   api_key: $DEEPSEEK_API_KEY
   #   max_tokens: 8192
@@ -138,7 +138,7 @@ models:
   # Example: Kimi K2.5 model
   # - name: kimi-k2.5
   #   display_name: Kimi K2.5
-  #   use: deerflow.models.patched_deepseek:PatchedChatDeepSeek
+  #   use: crab.models.patched_deepseek:PatchedChatDeepSeek
   #   model: kimi-k2.5
   #   api_base: https://api.moonshot.cn/v1
   #   api_key: $MOONSHOT_API_KEY
@@ -246,33 +246,33 @@ tools:
   # Web search tool (uses DuckDuckGo, no API key required)
   - name: web_search
     group: web
-    use: deerflow.community.ddg_search.tools:web_search_tool
+    use: crab.community.ddg_search.tools:web_search_tool
     max_results: 5
 
   # Web search tool (requires Tavily API key)
   # - name: web_search
   #   group: web
-  #   use: deerflow.community.tavily.tools:web_search_tool
+  #   use: crab.community.tavily.tools:web_search_tool
   #   max_results: 5
   #   # api_key: $TAVILY_API_KEY  # Set if needed
 
   # Web search tool (uses InfoQuest, requires InfoQuest API key)
   # - name: web_search
   #   group: web
-  #   use: deerflow.community.infoquest.tools:web_search_tool
+  #   use: crab.community.infoquest.tools:web_search_tool
   #   # Used to limit the scope of search results, only returns content within the specified time range. Set to -1 to disable time filtering
   #   search_time_range: 10
 
   # Web fetch tool (uses Jina AI reader)
   - name: web_fetch
     group: web
-    use: deerflow.community.jina_ai.tools:web_fetch_tool
+    use: crab.community.jina_ai.tools:web_fetch_tool
     timeout: 10
 
   # Web fetch tool (uses InfoQuest)
   # - name: web_fetch
   #   group: web
-  #   use: deerflow.community.infoquest.tools:web_fetch_tool
+  #   use: crab.community.infoquest.tools:web_fetch_tool
   #   # Overall timeout for the entire crawling process (in seconds). Set to positive value to enable, -1 to disable
   #   timeout: 10
   #   # Waiting time after page loading (in seconds). Set to positive value to enable, -1 to disable
@@ -284,13 +284,13 @@ tools:
   # Use this to find reference images before image generation
   - name: image_search
     group: web
-    use: deerflow.community.image_search.tools:image_search_tool
+    use: crab.community.image_search.tools:image_search_tool
     max_results: 5
 
   # Image search tool (uses InfoQuest)
   # - name: image_search
   #   group: web
-  #   use: deerflow.community.infoquest.tools:image_search_tool
+  #   use: crab.community.infoquest.tools:image_search_tool
   #   # Used to limit the scope of image search results, only returns content within the specified time range. Set to -1 to disable time filtering
   #   image_search_time_range: 10
   #   # Image size filter. Options: "l" (large), "m" (medium), "i" (icon).
@@ -299,24 +299,24 @@ tools:
   # File operations tools
   - name: ls
     group: file:read
-    use: deerflow.sandbox.tools:ls_tool
+    use: crab.sandbox.tools:ls_tool
 
   - name: read_file
     group: file:read
-    use: deerflow.sandbox.tools:read_file_tool
+    use: crab.sandbox.tools:read_file_tool
 
   - name: write_file
     group: file:write
-    use: deerflow.sandbox.tools:write_file_tool
+    use: crab.sandbox.tools:write_file_tool
 
   - name: str_replace
     group: file:write
-    use: deerflow.sandbox.tools:str_replace_tool
+    use: crab.sandbox.tools:str_replace_tool
 
   # Bash execution tool
   - name: bash
     group: bash
-    use: deerflow.sandbox.tools:bash_tool
+    use: crab.sandbox.tools:bash_tool
 
 # ============================================================================
 # Tool Search Configuration (Deferred Tool Loading)
@@ -338,7 +338,7 @@ tool_search:
 # Option 1: Local Sandbox (Default)
 # Executes commands directly on the host machine
 sandbox:
-  use: deerflow.sandbox.local:LocalSandboxProvider
+  use: crab.sandbox.local:LocalSandboxProvider
 
 # Option 2: Container-based AIO Sandbox
 # Executes commands in isolated containers (Docker or Apple Container)
@@ -346,7 +346,7 @@ sandbox:
 # On other platforms: Uses Docker
 # Uncomment to use:
 # sandbox:
-#   use: deerflow.community.aio_sandbox:AioSandboxProvider
+#   use: crab.community.aio_sandbox:AioSandboxProvider
 #
 #   # Optional: Container image to use (works with both Docker and Apple Container)
 #   # Default: enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
@@ -361,8 +361,8 @@ sandbox:
 #   # make room for new ones. Use a positive integer here; omit this field to use the default.
 #   # replicas: 3
 #
-#   # Optional: Prefix for container names (default: deer-flow-sandbox)
-#   # container_prefix: deer-flow-sandbox
+#   # Optional: Prefix for container names (default: crab-sandbox)
+#   # container_prefix: crab-sandbox
 #
 #   # Optional: Additional mount directories from host to container
 #   # NOTE: Skills directory is automatically mounted from skills.path to skills.container_path
@@ -384,7 +384,7 @@ sandbox:
 # Each sandbox_id gets a dedicated Pod in k3s, managed by the provisioner.
 # Recommended for production or advanced users who want better isolation and scalability.:
 # sandbox:
-#   use: deerflow.community.aio_sandbox:AioSandboxProvider
+#   use: crab.community.aio_sandbox:AioSandboxProvider
 #   provisioner_url: http://provisioner:8002
 
 # Option 4: E2B Cloud Sandbox (requires crab-platform package)
@@ -401,25 +401,25 @@ sandbox:
 #   # e2b_template: "base"
 #   # Optional: keepAlive timeout in seconds after release (default: 1800 = 30min)
 #   # keep_alive_seconds: 1800
-#   # Optional: map DeerFlow's stable virtual /mnt/... paths to real writable
+#   # Optional: map Crab's stable virtual /mnt/... paths to real writable
 #   # directories inside the E2B VM. Prompts and tools still see /mnt/... .
 #   # path_mapping:
 #   #   # Actual root behind /mnt/user-data.
-#   #   # DeerFlow will use:
+#   #   # Crab will use:
 #   #   #   {user_data_dir}/workspace  -> working files the agent edits
 #   #   #   {user_data_dir}/uploads    -> uploaded attachments injected into the VM
 #   #   #   {user_data_dir}/outputs    -> files presented back to the user
-#   #   user_data_dir: /home/user/.deerflow/user-data
+#   #   user_data_dir: /home/user/.crab-harness/user-data
 #   #   # Actual root behind /mnt/skills.
 #   #   # Built-in and custom skills are read from here inside E2B.
-#   #   skills_dir: /home/user/.deerflow/skills
+#   #   skills_dir: /home/user/.crab-harness/skills
 #   #   # Actual root behind /mnt/acp-workspace.
 #   #   # Used for ACP / sub-agent handoff files and intermediate artifacts.
-#   #   acp_workspace_dir: /home/user/.deerflow/acp-workspace
+#   #   acp_workspace_dir: /home/user/.crab-harness/acp-workspace
 #   #   # Default working directory (cwd) for command execution in the sandbox.
 #   #   # Usually point this at the workspace under user_data_dir so relative
 #   #   # paths land in the thread workspace by default.
-#   #   working_directory: /home/user/.deerflow/user-data/workspace
+#   #   working_directory: /home/user/.crab-harness/user-data/workspace
 
 # ============================================================================
 # Subagents Configuration
@@ -445,7 +445,7 @@ sandbox:
 
 # acp_agents:
 #   claude_code:
-#     # DeerFlow expects an ACP adapter here. The standard `claude` CLI does not
+#     # Crab expects an ACP adapter here. The standard `claude` CLI does not
 #     # speak ACP directly. Install `claude-agent-acp` separately or use:
 #     command: npx
 #     args: ["-y", "@zed-industries/claude-agent-acp"]
@@ -456,7 +456,7 @@ sandbox:
 #     #   ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY  # $VAR resolves from host environment
 #
 #   codex:
-#     # DeerFlow expects an ACP adapter here. The standard `codex` CLI does not
+#     # Crab expects an ACP adapter here. The standard `codex` CLI does not
 #     # speak ACP directly. Install `codex-acp` separately or use:
 #     command: npx
 #     args: ["-y", "@zed-industries/codex-acp"]
@@ -549,7 +549,7 @@ summarization:
 #
 # NOTE: In Gateway (multi-tenant) mode, memory is stored in PostgreSQL via
 # PGMemoryStorage — the `storage_path` and `storage_class` fields below are
-# IGNORED. They only take effect in embedded/single-user mode (DeerFlowClient).
+# IGNORED. They only take effect in embedded/single-user mode (CrabClient).
 # All other fields (enabled, debounce_seconds, model_name, max_facts, etc.)
 # still apply in both modes.
 memory:
@@ -565,11 +565,11 @@ memory:
 # ============================================================================
 # Checkpointer Configuration
 # ============================================================================
-# Configure state persistence for the embedded DeerFlowClient.
+# Configure state persistence for the embedded CrabClient.
 # The LangGraph Server manages its own state persistence separately
 # via the server infrastructure (this setting does not affect it).
 #
-# When configured, DeerFlowClient will automatically use this checkpointer,
+# When configured, CrabClient will automatically use this checkpointer,
 # enabling multi-turn conversations to persist across process restarts.
 #
 # Supported types:
@@ -595,7 +595,7 @@ checkpointer:
 # PostgreSQL (multi-process, production):
 # checkpointer:
 #   type: postgres
-#   connection_string: postgresql://user:password@localhost:5432/deerflow
+#   connection_string: postgresql://user:password@localhost:5432/crab
 
 # ============================================================================
 # Guardrails Configuration
@@ -611,14 +611,14 @@ checkpointer:
 # guardrails:
 #   enabled: true
 #   provider:
-#     use: deerflow.guardrails.builtin:AllowlistProvider
+#     use: crab.guardrails.builtin:AllowlistProvider
 #     config:
 #       denied_tools: ["bash", "write_file"]
 
 # --- Option 2: OAP passport provider (open standard, any implementation) ---
 #   The Open Agent Passport (OAP) spec defines passport format and decision codes.
 #   Any OAP-compliant provider works. Example using APort (reference implementation):
-#     pip install aport-agent-guardrails && aport setup --framework deerflow
+#     pip install aport-agent-guardrails && aport setup --framework crab
 # guardrails:
 #   enabled: true
 #   provider:

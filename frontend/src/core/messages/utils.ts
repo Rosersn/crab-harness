@@ -52,7 +52,7 @@ export function groupMessages<T>(
   }
 
   for (const message of messages) {
-    if (message.name === "todo_reminder") {
+    if (message.name === "todo_reminder" || message.name === "__view_image_injection") {
       continue;
     }
 

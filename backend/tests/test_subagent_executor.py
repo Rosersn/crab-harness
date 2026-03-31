@@ -8,7 +8,7 @@ Covers:
 - Async tool support (MCP tools)
 
 Note: Due to circular import issues in the main codebase, conftest.py mocks
-deerflow.subagents.executor. This test file uses delayed import via fixture to test
+crab.subagents.executor. This test file uses delayed import via fixture to test
 the real implementation in isolation.
 """
 
@@ -21,13 +21,13 @@ import pytest
 
 # Module names that need to be mocked to break circular imports
 _MOCKED_MODULE_NAMES = [
-    "deerflow.agents",
-    "deerflow.agents.thread_state",
-    "deerflow.agents.middlewares",
-    "deerflow.agents.middlewares.thread_data_middleware",
-    "deerflow.sandbox",
-    "deerflow.sandbox.middleware",
-    "deerflow.models",
+    "crab.agents",
+    "crab.agents.thread_state",
+    "crab.agents.middlewares",
+    "crab.agents.middlewares.thread_data_middleware",
+    "crab.sandbox",
+    "crab.sandbox.middleware",
+    "crab.models",
 ]
 
 
@@ -40,11 +40,11 @@ def _setup_executor_classes():
     """
     # Save original modules
     original_modules = {name: sys.modules.get(name) for name in _MOCKED_MODULE_NAMES}
-    original_executor = sys.modules.get("deerflow.subagents.executor")
+    original_executor = sys.modules.get("crab.subagents.executor")
 
     # Remove mocked executor if exists (from conftest.py)
-    if "deerflow.subagents.executor" in sys.modules:
-        del sys.modules["deerflow.subagents.executor"]
+    if "crab.subagents.executor" in sys.modules:
+        del sys.modules["crab.subagents.executor"]
 
     # Set up mocks
     for name in _MOCKED_MODULE_NAMES:
@@ -53,8 +53,8 @@ def _setup_executor_classes():
     # Import real classes inside fixture
     from langchain_core.messages import AIMessage, HumanMessage
 
-    from deerflow.subagents.config import SubagentConfig
-    from deerflow.subagents.executor import (
+    from crab.subagents.config import SubagentConfig
+    from crab.subagents.executor import (
         SubagentExecutor,
         SubagentResult,
         SubagentStatus,
@@ -81,9 +81,9 @@ def _setup_executor_classes():
 
     # Restore executor module (conftest.py mock)
     if original_executor is not None:
-        sys.modules["deerflow.subagents.executor"] = original_executor
-    elif "deerflow.subagents.executor" in sys.modules:
-        del sys.modules["deerflow.subagents.executor"]
+        sys.modules["crab.subagents.executor"] = original_executor
+    elif "crab.subagents.executor" in sys.modules:
+        del sys.modules["crab.subagents.executor"]
 
 
 # Helper classes that wrap real classes for testing
@@ -641,7 +641,7 @@ class TestCleanupBackgroundTask:
         # Re-import to get the real module with cleanup_background_task
         import importlib
 
-        from deerflow.subagents import executor
+        from crab.subagents import executor
 
         return importlib.reload(executor)
 

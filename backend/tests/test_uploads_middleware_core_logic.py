@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from deerflow.agents.middlewares.uploads_middleware import UploadsMiddleware
-from deerflow.config.paths import Paths
+from crab.agents.middlewares.uploads_middleware import UploadsMiddleware
+from crab.config.paths import Paths
 
 THREAD_ID = "thread-abc123"
 

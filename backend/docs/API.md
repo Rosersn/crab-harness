@@ -1,10 +1,10 @@
 # API Reference
 
-This document provides a complete reference for the DeerFlow backend APIs.
+This document provides a complete reference for the Crab backend APIs.
 
 ## Overview
 
-DeerFlow backend exposes two sets of APIs:
+Crab backend exposes two sets of APIs:
 
 1. **LangGraph API** - Agent interactions, threads, and streaming (`/api/langgraph/*`)
 2. **Gateway API** - Models, MCP, skills, uploads, and artifacts (`/api/*`)
@@ -407,11 +407,11 @@ Content-Type: multipart/form-data
     {
       "filename": "document.pdf",
       "size": 1234567,
-      "path": ".deer-flow/threads/abc123/user-data/uploads/document.pdf",
+      "path": ".crab-harness/threads/abc123/user-data/uploads/document.pdf",
       "virtual_path": "/mnt/user-data/uploads/document.pdf",
       "artifact_url": "/api/threads/abc123/artifacts/mnt/user-data/uploads/document.pdf",
       "markdown_file": "document.md",
-      "markdown_path": ".deer-flow/threads/abc123/user-data/uploads/document.md",
+      "markdown_path": ".crab-harness/threads/abc123/user-data/uploads/document.md",
       "markdown_virtual_path": "/mnt/user-data/uploads/document.md",
       "markdown_artifact_url": "/api/threads/abc123/artifacts/mnt/user-data/uploads/document.md"
     }
@@ -439,7 +439,7 @@ GET /api/threads/{thread_id}/uploads/list
     {
       "filename": "document.pdf",
       "size": 1234567,
-      "path": ".deer-flow/threads/abc123/user-data/uploads/document.pdf",
+      "path": ".crab-harness/threads/abc123/user-data/uploads/document.pdf",
       "virtual_path": "/mnt/user-data/uploads/document.pdf",
       "artifact_url": "/api/threads/abc123/artifacts/mnt/user-data/uploads/document.pdf",
       "extension": ".pdf",
@@ -466,7 +466,7 @@ DELETE /api/threads/{thread_id}/uploads/{filename}
 
 ### Thread Cleanup
 
-Remove DeerFlow-managed local thread files under `.deer-flow/threads/{thread_id}` after the LangGraph thread itself has been deleted.
+Remove Crab-managed local thread files under `.crab-harness/threads/{thread_id}` after the LangGraph thread itself has been deleted.
 
 ```http
 DELETE /api/threads/{thread_id}
@@ -525,9 +525,9 @@ All APIs return errors in a consistent format:
 
 ## Authentication
 
-Currently, DeerFlow does not implement authentication. All APIs are accessible without credentials.
+Currently, Crab does not implement authentication. All APIs are accessible without credentials.
 
-Note: This is about DeerFlow API authentication. MCP outbound connections can still use OAuth for configured HTTP/SSE MCP servers.
+Note: This is about Crab API authentication. MCP outbound connections can still use OAuth for configured HTTP/SSE MCP servers.
 
 For production deployments, it is recommended to:
 1. Use Nginx for basic auth or OAuth integration

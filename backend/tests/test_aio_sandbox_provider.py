@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from deerflow.config.paths import Paths
+from crab.config.paths import Paths
 
 # ── ensure_thread_dirs ───────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ def test_ensure_thread_dirs_acp_workspace_is_world_writable(tmp_path):
 
 def _make_provider(tmp_path):
     """Build a minimal AioSandboxProvider instance without starting the idle checker."""
-    aio_mod = importlib.import_module("deerflow.community.aio_sandbox.aio_sandbox_provider")
+    aio_mod = importlib.import_module("crab.community.aio_sandbox.aio_sandbox_provider")
     with patch.object(aio_mod.AioSandboxProvider, "_start_idle_checker"):
         provider = aio_mod.AioSandboxProvider.__new__(aio_mod.AioSandboxProvider)
         provider._config = {}
@@ -48,7 +48,7 @@ def _make_provider(tmp_path):
 
 def test_get_thread_mounts_includes_acp_workspace(tmp_path, monkeypatch):
     """_get_thread_mounts must include /mnt/acp-workspace (read-only) for docker sandbox."""
-    aio_mod = importlib.import_module("deerflow.community.aio_sandbox.aio_sandbox_provider")
+    aio_mod = importlib.import_module("crab.community.aio_sandbox.aio_sandbox_provider")
     monkeypatch.setattr(aio_mod, "get_paths", lambda: Paths(base_dir=tmp_path))
 
     mounts = aio_mod.AioSandboxProvider._get_thread_mounts("thread-3")
@@ -64,7 +64,7 @@ def test_get_thread_mounts_includes_acp_workspace(tmp_path, monkeypatch):
 
 def test_get_thread_mounts_includes_user_data_dirs(tmp_path, monkeypatch):
     """Baseline: user-data mounts must still be present after the ACP workspace change."""
-    aio_mod = importlib.import_module("deerflow.community.aio_sandbox.aio_sandbox_provider")
+    aio_mod = importlib.import_module("crab.community.aio_sandbox.aio_sandbox_provider")
     monkeypatch.setattr(aio_mod, "get_paths", lambda: Paths(base_dir=tmp_path))
 
     mounts = aio_mod.AioSandboxProvider._get_thread_mounts("thread-4")
@@ -77,7 +77,7 @@ def test_get_thread_mounts_includes_user_data_dirs(tmp_path, monkeypatch):
 
 def test_discover_or_create_only_unlocks_when_lock_succeeds(tmp_path, monkeypatch):
     """Unlock should not run if exclusive locking itself fails."""
-    aio_mod = importlib.import_module("deerflow.community.aio_sandbox.aio_sandbox_provider")
+    aio_mod = importlib.import_module("crab.community.aio_sandbox.aio_sandbox_provider")
     provider = _make_provider(tmp_path)
     provider._discover_or_create_with_lock = aio_mod.AioSandboxProvider._discover_or_create_with_lock.__get__(
         provider,

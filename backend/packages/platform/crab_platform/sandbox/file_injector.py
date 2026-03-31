@@ -318,7 +318,7 @@ async def inject_platform_skills(
     skills_path: Path | None = None,
 ) -> int:
     """Copy shared filesystem-backed skills into the E2B sandbox."""
-    from deerflow.config import get_app_config
+    from crab.config import get_app_config
 
     path_mapping = path_mapping or E2BPathMapping()
     if skills_path is None:

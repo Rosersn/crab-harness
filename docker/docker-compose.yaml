@@ -8,11 +8,11 @@
 #   - provisioner: (optional) Sandbox provisioner for Kubernetes mode
 #
 # Key environment variables (set via environment/.env or scripts/deploy.sh):
-#   DEER_FLOW_HOME                   — runtime data dir, default $REPO_ROOT/backend/.deer-flow
-#   DEER_FLOW_CONFIG_PATH            — path to config.yaml
-#   DEER_FLOW_EXTENSIONS_CONFIG_PATH — path to extensions_config.json
-#   DEER_FLOW_DOCKER_SOCKET          — Docker socket path, default /var/run/docker.sock
-#   DEER_FLOW_REPO_ROOT              — repo root (used for skills host path in DooD)
+#   CRAB_HOME                   — runtime data dir, default $REPO_ROOT/backend/.crab-harness
+#   CRAB_CONFIG_PATH            — path to config.yaml
+#   CRAB_EXTENSIONS_CONFIG_PATH — path to extensions_config.json
+#   CRAB_DOCKER_SOCKET          — Docker socket path, default /var/run/docker.sock
+#   CRAB_REPO_ROOT              — repo root (used for skills host path in DooD)
 #   CRAB_DATABASE_URL                — PostgreSQL connection URL
 #   CRAB_REDIS_URL                   — Redis connection URL
 #   CRAB_JWT_SECRET                  — JWT signing secret
@@ -23,7 +23,7 @@ services:
   # ── Reverse Proxy ──────────────────────────────────────────────────────────
   nginx:
     image: nginx:alpine
-    container_name: deer-flow-nginx
+    container_name: crab-nginx
     ports:
       - "${PORT:-2026}:2026"
     volumes:
@@ -32,7 +32,7 @@ services:
       - frontend
       - gateway
     networks:
-      - deer-flow
+      - crab
     restart: unless-stopped
 
   # ── Frontend: Next.js Production ───────────────────────────────────────────
@@ -44,13 +44,13 @@ services:
       args:
         PNPM_STORE_PATH: ${PNPM_STORE_PATH:-/root/.local/share/pnpm/store}
         NPM_REGISTRY: ${NPM_REGISTRY:-}
-    container_name: deer-flow-frontend
+    container_name: crab-frontend
     environment:
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
     env_file:
       - ../frontend/.env
     networks:
-      - deer-flow
+      - crab
     restart: unless-stopped
 
   # ── Gateway API ────────────────────────────────────────────────────────────
@@ -61,15 +61,15 @@ services:
       args:
         APT_MIRROR: ${APT_MIRROR:-}
         UV_IMAGE: ${UV_IMAGE:-ghcr.io/astral-sh/uv:0.7.20}
-    container_name: deer-flow-gateway
+    container_name: crab-gateway
     command: sh -c "cd backend && PYTHONPATH=. uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001 --workers 2"
     volumes:
-      - ${DEER_FLOW_CONFIG_PATH}:/app/backend/config.yaml:ro
-      - ${DEER_FLOW_EXTENSIONS_CONFIG_PATH}:/app/backend/extensions_config.json:ro
+      - ${CRAB_CONFIG_PATH}:/app/backend/config.yaml:ro
+      - ${CRAB_EXTENSIONS_CONFIG_PATH}:/app/backend/extensions_config.json:ro
       - ../skills:/app/skills:ro
-      - ${DEER_FLOW_HOME}:/app/backend/.deer-flow
+      - ${CRAB_HOME}:/app/backend/.crab-harness
       # DooD: AioSandboxProvider starts sandbox containers via host Docker daemon
-      - ${DEER_FLOW_DOCKER_SOCKET}:/var/run/docker.sock
+      - ${CRAB_DOCKER_SOCKET}:/var/run/docker.sock
       # CLI auth directories for auto-auth (Claude Code + Codex CLI)
       - type: bind
         source: ${HOME:?HOME must be set}/.claude
@@ -86,17 +86,17 @@ services:
     working_dir: /app
     environment:
       - CI=true
-      - DEER_FLOW_HOME=/app/backend/.deer-flow
+      - CRAB_HOME=/app/backend/.crab-harness
       # DooD path/network translation
-      - DEER_FLOW_HOST_BASE_DIR=${DEER_FLOW_HOME}
-      - DEER_FLOW_HOST_SKILLS_PATH=${DEER_FLOW_REPO_ROOT}/skills
-      - DEER_FLOW_SANDBOX_HOST=host.docker.internal
+      - CRAB_HOST_BASE_DIR=${CRAB_HOME}
+      - CRAB_HOST_SKILLS_PATH=${CRAB_REPO_ROOT}/skills
+      - CRAB_SANDBOX_HOST=host.docker.internal
     env_file:
       - ../.env
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - deer-flow
+      - crab
     restart: unless-stopped
 
   # ── Sandbox Provisioner (optional, Kubernetes mode) ────────────────────────
@@ -108,14 +108,14 @@ services:
       dockerfile: Dockerfile
       args:
         APT_MIRROR: ${APT_MIRROR:-}
-    container_name: deer-flow-provisioner
+    container_name: crab-provisioner
     volumes:
       - ~/.kube/config:/root/.kube/config:ro
     environment:
-      - K8S_NAMESPACE=deer-flow
+      - K8S_NAMESPACE=crab
       - SANDBOX_IMAGE=enterprise-public-cn-beijing.cr.volces.com/vefaas-public/all-in-one-sandbox:latest
-      - SKILLS_HOST_PATH=${DEER_FLOW_REPO_ROOT}/skills
-      - THREADS_HOST_PATH=${DEER_FLOW_HOME}/threads
+      - SKILLS_HOST_PATH=${CRAB_REPO_ROOT}/skills
+      - THREADS_HOST_PATH=${CRAB_HOME}/threads
       - KUBECONFIG_PATH=/root/.kube/config
       - NODE_HOST=host.docker.internal
       - K8S_API_SERVER=https://host.docker.internal:26443
@@ -124,7 +124,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - deer-flow
+      - crab
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
@@ -132,5 +132,5 @@ services:
       timeout: 5s
       retries: 6
 networks:
-  deer-flow:
+  crab:
     driver: bridge

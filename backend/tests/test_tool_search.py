@@ -6,8 +6,8 @@ import sys
 import pytest
 from langchain_core.tools import tool as langchain_tool
 
-from deerflow.config.tool_search_config import ToolSearchConfig, load_tool_search_config_from_dict
-from deerflow.tools.builtins.tool_search import (
+from crab.config.tool_search_config import ToolSearchConfig, load_tool_search_config_from_dict
+from crab.tools.builtins.tool_search import (
     DeferredToolRegistry,
     get_deferred_registry,
     reset_deferred_registry,
@@ -205,20 +205,20 @@ class TestSingleton:
 
 class TestToolSearchTool:
     def test_no_registry(self):
-        from deerflow.tools.builtins.tool_search import tool_search
+        from crab.tools.builtins.tool_search import tool_search
 
         result = tool_search.invoke({"query": "github"})
         assert result == "No deferred tools available."
 
     def test_no_match(self, registry):
-        from deerflow.tools.builtins.tool_search import tool_search
+        from crab.tools.builtins.tool_search import tool_search
 
         set_deferred_registry(registry)
         result = tool_search.invoke({"query": "nonexistent_xyz_tool"})
         assert "No tools found matching" in result
 
     def test_returns_valid_json(self, registry):
-        from deerflow.tools.builtins.tool_search import tool_search
+        from crab.tools.builtins.tool_search import tool_search
 
         set_deferred_registry(registry)
         result = tool_search.invoke({"query": "select:github_create_issue"})
@@ -228,7 +228,7 @@ class TestToolSearchTool:
         assert parsed[0]["name"] == "github_create_issue"
 
     def test_returns_openai_function_format(self, registry):
-        from deerflow.tools.builtins.tool_search import tool_search
+        from crab.tools.builtins.tool_search import tool_search
 
         set_deferred_registry(registry)
         result = tool_search.invoke({"query": "select:slack_send_message"})
@@ -240,7 +240,7 @@ class TestToolSearchTool:
         assert "parameters" in func_def
 
     def test_keyword_search_returns_json(self, registry):
-        from deerflow.tools.builtins.tool_search import tool_search
+        from crab.tools.builtins.tool_search import tool_search
 
         set_deferred_registry(registry)
         result = tool_search.invoke({"query": "github"})
@@ -259,30 +259,30 @@ class TestDeferredToolsPromptSection:
         """Provide a minimal AppConfig mock so tests don't need config.yaml."""
         from unittest.mock import MagicMock
 
-        from deerflow.config.tool_search_config import ToolSearchConfig
+        from crab.config.tool_search_config import ToolSearchConfig
 
         mock_config = MagicMock()
         mock_config.tool_search = ToolSearchConfig()  # disabled by default
-        monkeypatch.setattr("deerflow.config.get_app_config", lambda: mock_config)
+        monkeypatch.setattr("crab.config.get_app_config", lambda: mock_config)
 
     def test_empty_when_disabled(self):
-        from deerflow.agents.lead_agent.prompt import get_deferred_tools_prompt_section
+        from crab.agents.lead_agent.prompt import get_deferred_tools_prompt_section
 
         # tool_search.enabled defaults to False
         section = get_deferred_tools_prompt_section()
         assert section == ""
 
     def test_empty_when_enabled_but_no_registry(self, monkeypatch):
-        from deerflow.agents.lead_agent.prompt import get_deferred_tools_prompt_section
-        from deerflow.config import get_app_config
+        from crab.agents.lead_agent.prompt import get_deferred_tools_prompt_section
+        from crab.config import get_app_config
 
         monkeypatch.setattr(get_app_config().tool_search, "enabled", True)
         section = get_deferred_tools_prompt_section()
         assert section == ""
 
     def test_empty_when_enabled_but_empty_registry(self, monkeypatch):
-        from deerflow.agents.lead_agent.prompt import get_deferred_tools_prompt_section
-        from deerflow.config import get_app_config
+        from crab.agents.lead_agent.prompt import get_deferred_tools_prompt_section
+        from crab.config import get_app_config
 
         monkeypatch.setattr(get_app_config().tool_search, "enabled", True)
         set_deferred_registry(DeferredToolRegistry())
@@ -290,8 +290,8 @@ class TestDeferredToolsPromptSection:
         assert section == ""
 
     def test_lists_tool_names(self, registry, monkeypatch):
-        from deerflow.agents.lead_agent.prompt import get_deferred_tools_prompt_section
-        from deerflow.config import get_app_config
+        from crab.agents.lead_agent.prompt import get_deferred_tools_prompt_section
+        from crab.config import get_app_config
 
         monkeypatch.setattr(get_app_config().tool_search, "enabled", True)
         set_deferred_registry(registry)
@@ -313,23 +313,23 @@ class TestDeferredToolFilterMiddleware:
     def _ensure_middlewares_package(self):
         """Remove mock entries injected by test_subagent_executor.py.
 
-        That file replaces deerflow.agents and deerflow.agents.middlewares with
+        That file replaces crab.agents and crab.agents.middlewares with
         MagicMock objects in sys.modules (session-scoped) to break circular imports.
         We must clear those mocks so real submodule imports work.
         """
         from unittest.mock import MagicMock
 
         mock_keys = [
-            "deerflow.agents",
-            "deerflow.agents.middlewares",
-            "deerflow.agents.middlewares.deferred_tool_filter_middleware",
+            "crab.agents",
+            "crab.agents.middlewares",
+            "crab.agents.middlewares.deferred_tool_filter_middleware",
         ]
         for key in mock_keys:
             if isinstance(sys.modules.get(key), MagicMock):
                 del sys.modules[key]
 
     def test_filters_deferred_tools(self, registry):
-        from deerflow.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
+        from crab.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
 
         set_deferred_registry(registry)
         middleware = DeferredToolFilterMiddleware()
@@ -352,7 +352,7 @@ class TestDeferredToolFilterMiddleware:
         assert filtered.tools[0].name == "my_active_tool"
 
     def test_no_op_when_no_registry(self):
-        from deerflow.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
+        from crab.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
 
         middleware = DeferredToolFilterMiddleware()
         active_tool = _make_mock_tool("my_tool", "A tool")
@@ -372,7 +372,7 @@ class TestDeferredToolFilterMiddleware:
 
     def test_preserves_dict_tools(self, registry):
         """Dict tools (provider built-ins) should not be filtered."""
-        from deerflow.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
+        from crab.agents.middlewares.deferred_tool_filter_middleware import DeferredToolFilterMiddleware
 
         set_deferred_registry(registry)
         middleware = DeferredToolFilterMiddleware()

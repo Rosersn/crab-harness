@@ -7,17 +7,17 @@ from io import BytesIO
 from pathlib import Path
 from urllib.parse import quote
 
+from crab_platform.auth.interface import AuthenticatedUser
+from crab_platform.db import get_db
+from crab_platform.db.models import Thread
+from crab_platform.db.repos.thread_repo import ThreadRepo
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.gateway.deps import get_current_user
 from app.gateway.path_utils import resolve_thread_virtual_path
-from crab_platform.auth.interface import AuthenticatedUser
-from crab_platform.db import get_db
-from crab_platform.db.models import Thread
-from crab_platform.db.repos.thread_repo import ThreadRepo
-from deerflow.sandbox.sandbox_provider import get_sandbox_provider
+from crab.sandbox.sandbox_provider import get_sandbox_provider
 
 logger = logging.getLogger(__name__)
 

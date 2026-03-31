@@ -17,8 +17,8 @@ from crab_platform.config.platform_config import get_platform_config
 def _get_bos_client():  # type: ignore[return]
     """Lazy-import BOS client so the module can be imported without bce-python-sdk."""
     try:
-        from baidubce.bce_client_configuration import BceClientConfiguration
         from baidubce.auth.bce_credentials import BceCredentials
+        from baidubce.bce_client_configuration import BceClientConfiguration
         from baidubce.services.bos.bos_client import BosClient
     except ImportError as exc:
         raise ImportError(

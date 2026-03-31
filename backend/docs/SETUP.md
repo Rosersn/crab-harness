@@ -1,16 +1,16 @@
 # Setup Guide
 
-Quick setup instructions for DeerFlow.
+Quick setup instructions for Crab.
 
 ## Configuration Setup
 
-DeerFlow uses a YAML configuration file that should be placed in the **project root directory**.
+Crab uses a YAML configuration file that should be placed in the **project root directory**.
 
 ### Steps
 
 1. **Navigate to project root**:
    ```bash
-   cd /path/to/deer-flow
+   cd /path/to/crab-harness
    ```
 
 2. **Copy example configuration**:
@@ -30,12 +30,12 @@ DeerFlow uses a YAML configuration file that should be placed in the **project r
 4. **Verify configuration**:
    ```bash
    cd backend
-   python -c "from deerflow.config import get_app_config; print('✓ Config loaded:', get_app_config().models[0].name)"
+   python -c "from crab.config import get_app_config; print('✓ Config loaded:', get_app_config().models[0].name)"
    ```
 
 ## Important Notes
 
-- **Location**: `config.yaml` should be in `deer-flow/` (project root), not `deer-flow/backend/`
+- **Location**: `config.yaml` should be in `crab-harness/` (project root), not `crab-harness/backend/`
 - **Git**: `config.yaml` is automatically ignored by git (contains secrets)
 - **Priority**: If both `backend/config.yaml` and `../config.yaml` exist, backend version takes precedence
 
@@ -43,15 +43,15 @@ DeerFlow uses a YAML configuration file that should be placed in the **project r
 
 The backend searches for `config.yaml` in this order:
 
-1. `DEER_FLOW_CONFIG_PATH` environment variable (if set)
+1. `CRAB_CONFIG_PATH` environment variable (if set)
 2. `backend/config.yaml` (current directory when running from backend/)
-3. `deer-flow/config.yaml` (parent directory - **recommended location**)
+3. `crab-harness/config.yaml` (parent directory - **recommended location**)
 
-**Recommended**: Place `config.yaml` in project root (`deer-flow/config.yaml`).
+**Recommended**: Place `config.yaml` in project root (`crab-harness/config.yaml`).
 
 ## Sandbox Setup (Optional but Recommended)
 
-If you plan to use Docker/Container-based sandbox (configured in `config.yaml` under `sandbox.use: deerflow.community.aio_sandbox:AioSandboxProvider`), it's highly recommended to pre-pull the container image:
+If you plan to use Docker/Container-based sandbox (configured in `config.yaml` under `sandbox.use: crab.community.aio_sandbox:AioSandboxProvider`), it's highly recommended to pre-pull the container image:
 
 ```bash
 # From project root
@@ -71,8 +71,8 @@ If you skip this step, the image will be automatically pulled on first agent exe
 
 ```bash
 # Check where the backend is looking
-cd deer-flow/backend
-python -c "from deerflow.config.app_config import AppConfig; print(AppConfig.resolve_config_path())"
+cd crab-harness/backend
+python -c "from crab.config.app_config import AppConfig; print(AppConfig.resolve_config_path())"
 ```
 
 If it can't find the config:

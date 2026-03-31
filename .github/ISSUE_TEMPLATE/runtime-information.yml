@@ -81,7 +81,7 @@ body:
   - type: dropdown
     id: run_mode
     attributes:
-      label: How are you running DeerFlow?
+      label: How are you running Crab?
       options:
         - Local (make dev)
         - Docker (make docker-dev)

@@ -28,11 +28,11 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select, update
 
+from crab.config import get_app_config
+from crab.sandbox.sandbox import Sandbox
+from crab.sandbox.sandbox_provider import SandboxProvider
 from crab_platform.sandbox.e2b_sandbox import E2BSandbox
 from crab_platform.sandbox.path_mapping import E2BPathMapping, build_e2b_path_mapping
-from deerflow.config import get_app_config
-from deerflow.sandbox.sandbox import Sandbox
-from deerflow.sandbox.sandbox_provider import SandboxProvider
 
 if TYPE_CHECKING:
     from e2b import Sandbox as E2BSdkSandbox

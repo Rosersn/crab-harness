@@ -1,6 +1,6 @@
 # Guardrails: Pre-Tool-Call Authorization
 
-> **Context:** [Issue #1213](https://github.com/bytedance/deer-flow/issues/1213) — DeerFlow has Docker sandboxing and human approval via `ask_clarification`, but no deterministic, policy-driven authorization layer for tool calls. An agent running autonomous multi-step tasks can execute any loaded tool with any arguments. Guardrails add a middleware that evaluates every tool call against a policy **before** execution.
+> **Context:** Crab has Docker sandboxing and human approval via `ask_clarification`, but no deterministic, policy-driven authorization layer for tool calls. An agent running autonomous multi-step tasks can execute any loaded tool with any arguments. Guardrails add a middleware that evaluates every tool call against a policy **before** execution.
 
 ## Why Guardrails
 
@@ -82,14 +82,14 @@ The `GuardrailMiddleware` implements `wrap_tool_call` / `awrap_tool_call` (the s
 
 ### Option 1: Built-in AllowlistProvider (Zero Dependencies)
 
-The simplest option. Ships with DeerFlow. Block or allow tools by name. No external packages, no passport, no network.
+The simplest option. Ships with Crab. Block or allow tools by name. No external packages, no passport, no network.
 
 **config.yaml:**
 ```yaml
 guardrails:
   enabled: true
   provider:
-    use: deerflow.guardrails.builtin:AllowlistProvider
+    use: crab.guardrails.builtin:AllowlistProvider
     config:
       denied_tools: ["bash", "write_file"]
 ```
@@ -101,20 +101,20 @@ You can also use an allowlist (only these tools are permitted):
 guardrails:
   enabled: true
   provider:
-    use: deerflow.guardrails.builtin:AllowlistProvider
+    use: crab.guardrails.builtin:AllowlistProvider
     config:
       allowed_tools: ["web_search", "read_file", "ls"]
 ```
 
 **Try it:**
 1. Add the config above to your `config.yaml`
-2. Start DeerFlow: `make dev`
+2. Start Crab: `make dev`
 3. Ask the agent: "Use bash to run echo hello"
 4. The agent sees: `Guardrail denied: tool 'bash' was blocked (oap.tool_not_allowed)`
 
 ### Option 2: OAP Passport Provider (Policy-Based)
 
-For policy enforcement based on the [Open Agent Passport (OAP)](https://github.com/aporthq/aport-spec) open standard. An OAP passport is a JSON document that declares an agent's identity, capabilities, and operational limits. Any provider that reads an OAP passport and returns OAP-compliant decisions works with DeerFlow.
+For policy enforcement based on the [Open Agent Passport (OAP)](https://github.com/aporthq/aport-spec) open standard. An OAP passport is a JSON document that declares an agent's identity, capabilities, and operational limits. Any provider that reads an OAP passport and returns OAP-compliant decisions works with Crab.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -156,12 +156,12 @@ An OAP passport is just a JSON file. You can create one by hand following the [O
 
 ```bash
 pip install aport-agent-guardrails
-aport setup --framework deerflow
+aport setup --framework crab
 ```
 
 This creates:
-- `~/.aport/deerflow/config.yaml` -- evaluator config (local or API mode)
-- `~/.aport/deerflow/aport/passport.json` -- OAP passport with capabilities and limits
+- `~/.aport/crab/config.yaml` -- evaluator config (local or API mode)
+- `~/.aport/crab/aport/passport.json` -- OAP passport with capabilities and limits
 
 **config.yaml (using APort as the provider):**
 ```yaml
@@ -181,7 +181,7 @@ guardrails:
       passport_path: ./my-passport.json
 ```
 
-Any provider that accepts `framework` as a kwarg and implements `evaluate`/`aevaluate` works. The OAP standard defines the passport format and decision codes; DeerFlow doesn't care which provider reads them.
+Any provider that accepts `framework` as a kwarg and implements `evaluate`/`aevaluate` works. The OAP standard defines the passport format and decision codes; Crab doesn't care which provider reads them.
 
 **What the passport controls:**
 
@@ -201,11 +201,11 @@ OAP providers may support different evaluation modes. For example, the APort ref
 | **Local** | Evaluates passport locally (bash script). | None | ~300ms |
 | **API** | Sends passport + context to a hosted evaluator. Signed decisions. | Yes | ~65ms |
 
-A custom OAP provider can implement any evaluation strategy -- the DeerFlow middleware doesn't care how the provider reaches its decision.
+A custom OAP provider can implement any evaluation strategy -- the Crab middleware doesn't care how the provider reaches its decision.
 
 **Try it:**
 1. Install and set up as above
-2. Start DeerFlow and ask: "Create a file called test.txt with content hello"
+2. Start Crab and ask: "Create a file called test.txt with content hello"
 3. Then ask: "Now delete it using bash rm -rf"
 4. Guardrail blocks it: `oap.blocked_pattern: Command contains blocked pattern: rm -rf`
 
@@ -220,7 +220,7 @@ class MyGuardrailProvider:
     name = "my-company"
 
     def evaluate(self, request):
-        from deerflow.guardrails.provider import GuardrailDecision, GuardrailReason
+        from crab.guardrails.provider import GuardrailDecision, GuardrailReason
 
         # Example: block any bash command containing "delete"
         if request.tool_name == "bash" and "delete" in str(request.tool_input):
@@ -248,7 +248,7 @@ Make sure `my_guardrail.py` is on the Python path (e.g. in the backend directory
 **Try it:**
 1. Create `my_guardrail.py` in the backend directory
 2. Add the config
-3. Start DeerFlow and ask: "Use bash to delete test.txt"
+3. Start Crab and ask: "Use bash to delete test.txt"
 4. Your provider blocks it
 
 ## Implementing a Provider
@@ -282,7 +282,7 @@ Make sure `my_guardrail.py` is on the Python path (e.g. in the backend directory
                                 └──────────────────────────┘
 ```
 
-### DeerFlow Tool Names
+### Crab Tool Names
 
 These are the tool names your provider will see in `request.tool_name`:
 
@@ -318,14 +318,14 @@ Standard codes used by the [OAP specification](https://github.com/aporthq/aport-
 
 ### Provider Loading
 
-DeerFlow loads providers via `resolve_variable()` -- the same mechanism used for models, tools, and sandbox providers. The `use:` field is a Python class path: `package.module:ClassName`.
+Crab loads providers via `resolve_variable()` -- the same mechanism used for models, tools, and sandbox providers. The `use:` field is a Python class path: `package.module:ClassName`.
 
-The provider is instantiated with `**config` kwargs if `config:` is set, plus `framework="deerflow"` is always injected. Accept `**kwargs` to stay forward-compatible:
+The provider is instantiated with `**config` kwargs if `config:` is set, plus `framework="crab"` is always injected. Accept `**kwargs` to stay forward-compatible:
 
 ```python
 class YourProvider:
     def __init__(self, framework: str = "generic", **kwargs):
-        # framework="deerflow" tells you which config dir to use
+        # framework="crab" tells you which config dir to use
         ...
 ```
 
@@ -345,7 +345,7 @@ guardrails:
 
   # Provider: loaded by class path via resolve_variable
   provider:
-    use: deerflow.guardrails.builtin:AllowlistProvider
+    use: crab.guardrails.builtin:AllowlistProvider
     config:  # optional kwargs passed to provider.__init__
       denied_tools: ["bash"]
 ```
@@ -367,16 +367,16 @@ uv run python -m pytest tests/test_guardrail_middleware.py -v
 ## Files
 
 ```
-packages/harness/deerflow/guardrails/
+packages/harness/crab/guardrails/
     __init__.py              # Public exports
     provider.py              # GuardrailProvider protocol, GuardrailRequest, GuardrailDecision
     middleware.py             # GuardrailMiddleware (AgentMiddleware subclass)
     builtin.py               # AllowlistProvider (zero deps)
 
-packages/harness/deerflow/config/
+packages/harness/crab/config/
     guardrails_config.py     # GuardrailsConfig Pydantic model + singleton
 
-packages/harness/deerflow/agents/middlewares/
+packages/harness/crab/agents/middlewares/
     tool_error_handling_middleware.py  # Registers GuardrailMiddleware in chain
 
 config.example.yaml          # Three provider options documented

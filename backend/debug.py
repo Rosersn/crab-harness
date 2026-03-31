@@ -5,7 +5,7 @@ Run this file directly in VS Code with breakpoints.
 
 Requirements:
     Run with `uv run` from the backend/ directory so that the uv workspace
-    resolves deerflow-harness and app packages correctly:
+    resolves crab-harness and app packages correctly:
 
         cd backend && PYTHONPATH=. uv run python debug.py
 
@@ -21,7 +21,7 @@ import logging
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 
-from deerflow.agents import make_lead_agent
+from crab.agents import make_lead_agent
 
 load_dotenv()
 
@@ -35,7 +35,7 @@ logging.basicConfig(
 async def main():
     # Initialize MCP tools at startup
     try:
-        from deerflow.mcp import initialize_mcp_tools
+        from crab.mcp import initialize_mcp_tools
 
         await initialize_mcp_tools()
     except Exception as e:

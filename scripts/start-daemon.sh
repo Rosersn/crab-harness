@@ -28,7 +28,7 @@ pkill -f "next-server" 2>/dev/null || true
 nginx -c "$REPO_ROOT/docker/nginx/nginx.local.conf" -p "$REPO_ROOT" -s quit 2>/dev/null || true
 sleep 1
 pkill -9 nginx 2>/dev/null || true
-./scripts/cleanup-containers.sh deer-flow-sandbox 2>/dev/null || true
+./scripts/cleanup-containers.sh crab-sandbox 2>/dev/null || true
 sleep 1
 
 # ── Banner ────────────────────────────────────────────────────────────────────
@@ -42,13 +42,13 @@ echo ""
 # ── Config check ─────────────────────────────────────────────────────────────
 
 if ! { \
-        [ -n "$DEER_FLOW_CONFIG_PATH" ] && [ -f "$DEER_FLOW_CONFIG_PATH" ] || \
+        [ -n "$CRAB_CONFIG_PATH" ] && [ -f "$CRAB_CONFIG_PATH" ] || \
         [ -f backend/config.yaml ] || \
         [ -f config.yaml ]; \
     }; then
     echo "✗ No config file found."
     echo "  Checked these locations:"
-    echo "    - $DEER_FLOW_CONFIG_PATH (when DEER_FLOW_CONFIG_PATH is set)"
+    echo "    - $CRAB_CONFIG_PATH (when CRAB_CONFIG_PATH is set)"
     echo "    - backend/config.yaml"
     echo "    - ./config.yaml"
     echo ""

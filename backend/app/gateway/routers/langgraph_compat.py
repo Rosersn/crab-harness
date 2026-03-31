@@ -26,19 +26,19 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
-from sse_starlette.sse import EventSourceResponse
-
-from app.gateway.deps import get_current_user
 from crab_platform.auth.interface import AuthenticatedUser
 from crab_platform.context import RequestContext
 from crab_platform.db import get_db
 from crab_platform.db.models import Thread
 from crab_platform.db.repos.message_repo import MessageRepo
 from crab_platform.db.repos.thread_repo import RunRepo, ThreadRepo
-from deerflow.config.paths import get_paths
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+from sse_starlette.sse import EventSourceResponse
+
+from app.gateway.deps import get_current_user
+from crab.config.paths import get_paths
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +144,9 @@ async def _load_state_from_checkpointer(thread_id: uuid.UUID) -> dict[str, Any] 
     if no checkpoint is available.
     """
     try:
-        from deerflow.agents.checkpointer import make_checkpointer
-
         from langgraph.checkpoint.base import CheckpointTuple
+
+        from crab.agents.checkpointer import make_checkpointer
 
         config = {"configurable": {"thread_id": str(thread_id)}}
         async with make_checkpointer() as checkpointer:
@@ -160,7 +160,10 @@ async def _load_state_from_checkpointer(thread_id: uuid.UUID) -> dict[str, Any] 
 
             # Serialize LangChain messages from checkpoint
             raw_messages = channel_values.get("messages", [])
-            serialized = [_serialize_langchain_message(m) for m in raw_messages]
+            serialized = [
+                s for m in raw_messages
+                if not (s := _serialize_langchain_message(m)).get("name", "").startswith("__")
+            ]
 
             return {
                 "messages": serialized,
@@ -684,7 +687,8 @@ async def stream_run(
         try:
             from crab_platform.agent.factory import make_tenant_agent
             from crab_platform.db import get_session_factory
-            from deerflow.agents.checkpointer import make_checkpointer
+
+            from crab.agents.checkpointer import make_checkpointer
 
             async with make_checkpointer() as checkpointer:
                 # Build tenant-scoped agent with per-user tools, memory, skills
@@ -778,6 +782,9 @@ async def stream_run(
                         s = _serialize_langchain_message(msg)
                         msg_id = s.get("id")
                         if isinstance(msg_id, str) and msg_id in internal_stream_message_ids:
+                            continue
+                        # Filter middleware-injected internal messages by name
+                        if s.get("name", "").startswith("__"):
                             continue
                         serialized.append(s)
 
@@ -1067,7 +1074,8 @@ async def _cleanup_thread_resources(thread: Thread, db: AsyncSession) -> None:
     """Delete external thread resources before removing the DB row."""
     from crab_platform.redis import release_thread_lock
     from crab_platform.storage import get_object_storage
-    from deerflow.agents.checkpointer import make_checkpointer
+
+    from crab.agents.checkpointer import make_checkpointer
 
     storage = get_object_storage()
 
@@ -1138,11 +1146,14 @@ def _serialize_langchain_message(msg) -> dict[str, Any]:
             "id": getattr(msg, "id", None),
         }
     if isinstance(msg, HumanMessage):
-        payload = {
+        payload: dict[str, Any] = {
             "type": "human",
             "content": msg.content,
             "id": getattr(msg, "id", None),
         }
+        msg_name = getattr(msg, "name", None)
+        if msg_name:
+            payload["name"] = msg_name
         files = msg.additional_kwargs.get("files")
         if isinstance(files, list) and files:
             payload["additional_kwargs"] = {"files": files}

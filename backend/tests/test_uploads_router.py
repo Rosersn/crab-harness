@@ -110,8 +110,8 @@ def test_upload_files_writes_to_bos_pg_and_local(tmp_path):
     assert (tmp_path / "notes.txt").read_bytes() == b"hello uploads"
     # Local sandbox — no sandbox.update_file
     sandbox.update_file.assert_not_called()
-    # Session was committed
-    db.commit.assert_called_once()
+    # Session was committed (once after thread ownership check, once after upload)
+    assert db.commit.call_count == 2
 
 
 def test_upload_files_creates_missing_thread_before_metadata_write(tmp_path):

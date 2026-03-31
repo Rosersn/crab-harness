@@ -1,10 +1,10 @@
 """Upload router for handling file uploads.
 
 Files are stored in object storage (BOS/local) with metadata in PostgreSQL.
-Additionally, files are written to the local thread directory and synced to
-the sandbox so that UploadsMiddleware and the Agent can discover them.
-This local write will become unnecessary once E2B sandbox (Phase 4) replaces
-the local sandbox — at that point files will be injected from BOS directly.
+For local sandbox mode, files are also written to the host thread directory so
+that UploadsMiddleware can discover them via filesystem scan.
+For remote sandboxes (E2B), files are synced directly into the sandbox from
+memory; no local disk write is needed.
 """
 
 import asyncio
@@ -157,9 +157,10 @@ async def _materialize_upload_file(
     filename: str,
     content: bytes,
 ) -> None:
-    """Ensure a file exists in the local thread dir and active sandbox."""
-    _write_local_upload(local_uploads_dir, filename, content, sandbox_id)
-    if sandbox_id != "local":
+    """Ensure a file exists in the local thread dir (local sandbox) or remote sandbox (E2B)."""
+    if sandbox_id == "local":
+        _write_local_upload(local_uploads_dir, filename, content, sandbox_id)
+    else:
         await _sync_upload_to_sandbox(sandbox, upload_virtual_path(filename), content)
 
 
@@ -238,16 +239,20 @@ async def upload_files(
     existing_uploads_by_name = {u.filename: u for u in existing_uploads}
     reserved_names = set(existing_uploads_by_name)
 
-    # Local thread directory + sandbox (for UploadsMiddleware / Agent compatibility)
-    try:
-        local_uploads_dir = ensure_uploads_dir(thread_id)
-    except ValueError:
-        local_uploads_dir = None
-
+    # Acquire sandbox first to determine if local writes are needed
     sandbox_uploads = get_paths().sandbox_uploads_dir(thread_id)
     sandbox_provider, sandbox_id, sandbox = await _acquire_sandbox_for_upload(thread_id)
     if sandbox_id != "local" and sandbox is None:
         raise HTTPException(status_code=500, detail="Failed to acquire sandbox for thread uploads")
+
+    # Local thread directory only needed for local sandbox mode
+    if sandbox_id == "local":
+        try:
+            local_uploads_dir = ensure_uploads_dir(thread_id)
+        except ValueError:
+            local_uploads_dir = None
+    else:
+        local_uploads_dir = None
 
     try:
         for file in files:
@@ -451,14 +456,13 @@ async def delete_uploaded_file(
     except Exception:
         logger.warning("Failed to delete object storage key %s (continuing)", record.bos_key)
 
-    # Delete from local thread directory (best-effort)
+    # Delete from local thread directory (best-effort, only if it exists on disk)
     try:
         from crab.uploads.manager import get_uploads_dir
         local_dir = get_uploads_dir(thread_id)
         local_file = local_dir / filename
         if local_file.is_file():
             local_file.unlink()
-            # Also clean up companion markdown
             if record.markdown_bos_key:
                 md_file = local_dir / f"{filename}.extracted.md"
                 md_file.unlink(missing_ok=True)

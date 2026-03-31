@@ -205,17 +205,18 @@ Being proactive with task management demonstrates thoroughness and ensures all r
 # ViewImageMiddleware should be before ClarificationMiddleware to inject image details before LLM
 # ToolErrorHandlingMiddleware should be before ClarificationMiddleware to convert tool exceptions to ToolMessages
 # ClarificationMiddleware should be last to intercept clarification requests after model calls
-def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_name: str | None = None):
+def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_name: str | None = None, upload_records=None):
     """Build middleware chain based on runtime configuration.
 
     Args:
         config: Runtime configuration containing configurable options like is_plan_mode.
         agent_name: If provided, MemoryMiddleware will use per-agent memory storage.
+        upload_records: Optional callback for PG-based upload file discovery.
 
     Returns:
         List of middleware instances.
     """
-    middlewares = build_lead_runtime_middlewares(lazy_init=True)
+    middlewares = build_lead_runtime_middlewares(lazy_init=True, upload_records=upload_records)
 
     # Add summarization middleware if enabled
     summarization_middleware = _create_summarization_middleware()

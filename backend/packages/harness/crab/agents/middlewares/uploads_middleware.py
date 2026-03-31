@@ -1,6 +1,7 @@
 """Middleware to inject uploaded files information into agent context."""
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import NotRequired, override
 
@@ -13,6 +14,9 @@ from crab.agents.thread_state import AgentRuntimeContext
 from crab.config.paths import Paths, get_paths
 
 logger = logging.getLogger(__name__)
+
+# Signature: (thread_id: str) -> list[dict] where each dict has "filename" and "size".
+UploadRecordsProvider = Callable[[str], list[dict]]
 
 
 class UploadsMiddlewareState(AgentState):
@@ -31,14 +35,19 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
 
     state_schema = UploadsMiddlewareState
 
-    def __init__(self, base_dir: str | None = None):
+    def __init__(self, base_dir: str | None = None, upload_records: UploadRecordsProvider | None = None):
         """Initialize the middleware.
 
         Args:
             base_dir: Base directory for thread data. Defaults to Paths resolution.
+            upload_records: Optional callback that returns upload metadata from an
+                external store (e.g. PG). When provided, local filesystem checks
+                are skipped — file existence is trusted from the metadata source.
+                Signature: (thread_id) -> [{"filename": str, "size": int}, ...]
         """
         super().__init__()
         self._paths = Paths(base_dir) if base_dir else get_paths()
+        self._upload_records = upload_records
 
     def _create_files_message(self, new_files: list[dict], historical_files: list[dict]) -> str:
         """Create a formatted message listing uploaded files.
@@ -88,8 +97,8 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
 
         Args:
             message: The human message to inspect.
-            uploads_dir: Physical uploads directory used to verify file existence.
-                         When provided, entries whose files no longer exist are skipped.
+            uploads_dir: Physical uploads directory used to verify file existence
+                         in local-filesystem mode. Skipped when upload_records is set.
 
         Returns:
             List of file dicts with virtual paths, or None if the field is absent or empty.
@@ -105,7 +114,9 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
             filename = f.get("filename") or ""
             if not filename or Path(filename).name != filename:
                 continue
-            if uploads_dir is not None and not (uploads_dir / filename).is_file():
+            # When upload_records is provided (remote sandbox), trust metadata
+            # without checking local filesystem.
+            if self._upload_records is None and uploads_dir is not None and not (uploads_dir / filename).is_file():
                 continue
             files.append(
                 {
@@ -153,10 +164,28 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
         # Get newly uploaded files from the current message's additional_kwargs.files
         new_files = self._files_from_kwargs(last_message, uploads_dir) or []
 
-        # Collect historical files from the uploads directory (all except the new ones)
+        # Collect historical files — from PG metadata or local filesystem scan
         new_filenames = {f["filename"] for f in new_files}
         historical_files: list[dict] = []
-        if uploads_dir and uploads_dir.exists():
+        if self._upload_records and thread_id:
+            # Remote sandbox mode: query upload records from external store (PG)
+            try:
+                all_uploads = self._upload_records(thread_id)
+                for upload in all_uploads:
+                    fname = upload["filename"]
+                    if fname not in new_filenames:
+                        historical_files.append(
+                            {
+                                "filename": fname,
+                                "size": upload["size"],
+                                "path": f"/mnt/user-data/uploads/{fname}",
+                                "extension": Path(fname).suffix,
+                            }
+                        )
+            except Exception:
+                logger.warning("Failed to query upload records for thread %s", thread_id, exc_info=True)
+        elif uploads_dir and uploads_dir.exists():
+            # Local sandbox mode: scan the host filesystem
             for file_path in sorted(uploads_dir.iterdir()):
                 if file_path.is_file() and file_path.name not in new_filenames:
                     stat = file_path.stat()

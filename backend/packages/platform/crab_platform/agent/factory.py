@@ -12,7 +12,9 @@ replaced with per-user versions.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import uuid as _uuid
 from typing import Any
 
 from langchain.agents import create_agent
@@ -31,6 +33,39 @@ from crab_platform.agent.tool_assembler import assemble_user_tools
 from crab_platform.context import RequestContext
 
 logger = logging.getLogger(__name__)
+
+
+def _make_upload_records_provider(user_id: _uuid.UUID):
+    """Create a synchronous callback that queries PG for upload records.
+
+    The callback is used by ``UploadsMiddleware`` (harness layer) to discover
+    uploaded files without scanning the local filesystem.  It runs the async PG
+    query in a dedicated thread (via ``ThreadPoolExecutor``) to avoid conflicting
+    with the already-running FastAPI event loop.
+    """
+    import concurrent.futures
+
+    from crab_platform.db import create_isolated_session_factory
+    from crab_platform.db.repos.upload_repo import UploadRepo
+
+    engine, session_factory = create_isolated_session_factory()
+
+    def _list_uploads(thread_id: str) -> list[dict]:
+        try:
+            tid = _uuid.UUID(thread_id)
+        except ValueError:
+            return []
+
+        async def _query():
+            async with session_factory() as session:
+                repo = UploadRepo(session)
+                uploads = await repo.list_for_thread(tid, user_id)
+                return [{"filename": u.filename, "size": u.size_bytes} for u in uploads]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(asyncio.run, _query()).result()
+
+    return _list_uploads
 
 
 async def make_tenant_agent(
@@ -117,7 +152,8 @@ async def make_tenant_agent(
 
     # 3. Build middleware chain (reuse harness chain — middleware reads
     #    user_id/tenant_id from config["configurable"] when needed)
-    middlewares = _build_middlewares(config, model_name=model_name, agent_name=agent_name)
+    upload_records = _make_upload_records_provider(ctx.user_id)
+    middlewares = _build_middlewares(config, model_name=model_name, agent_name=agent_name, upload_records=upload_records)
 
     # 4. Build per-user system prompt
     system_prompt = await _build_tenant_prompt(

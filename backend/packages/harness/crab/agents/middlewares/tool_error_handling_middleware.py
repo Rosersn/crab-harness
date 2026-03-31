@@ -70,6 +70,7 @@ def _build_runtime_middlewares(
     include_uploads: bool,
     include_dangling_tool_call_patch: bool,
     lazy_init: bool = True,
+    upload_records=None,
 ) -> list[AgentMiddleware]:
     """Build shared base middlewares for agent execution."""
     from crab.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
@@ -83,7 +84,7 @@ def _build_runtime_middlewares(
     if include_uploads:
         from crab.agents.middlewares.uploads_middleware import UploadsMiddleware
 
-        middlewares.insert(1, UploadsMiddleware())
+        middlewares.insert(1, UploadsMiddleware(upload_records=upload_records))
 
     if include_dangling_tool_call_patch:
         from crab.agents.middlewares.dangling_tool_call_middleware import DanglingToolCallMiddleware
@@ -119,12 +120,13 @@ def _build_runtime_middlewares(
     return middlewares
 
 
-def build_lead_runtime_middlewares(*, lazy_init: bool = True) -> list[AgentMiddleware]:
+def build_lead_runtime_middlewares(*, lazy_init: bool = True, upload_records=None) -> list[AgentMiddleware]:
     """Middlewares shared by lead agent runtime before lead-only middlewares."""
     return _build_runtime_middlewares(
         include_uploads=True,
         include_dangling_tool_call_patch=True,
         lazy_init=lazy_init,
+        upload_records=upload_records,
     )
 
 
